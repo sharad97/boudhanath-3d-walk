@@ -2429,7 +2429,7 @@ const player = (function(){
 let mode = 'walk'; // walk | tour | orbit | sv
 let tourU = 0.795; // start near the south gate on the loop
 let orbitA = 0.65, orbitR = 118, orbitH = 42;
-const ORB={x:0,y:0,z:0,look:16};   // what Orbit view circles: the stupa at Boudha, else the landmark or spot you are at
+const ORB={x:0,y:0,z:0,look:16,spin:true};   // what Orbit view circles: the stupa at Boudha, else the landmark or spot you are at
 const keys = {};
 addEventListener('keydown', e=>{ keys[e.code]=true; if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code)) e.preventDefault(); });
 addEventListener('keyup', e=>{ keys[e.code]=false; });
@@ -2470,8 +2470,18 @@ function tryMove(dx, dz){
 /* ---------- look & joystick input ---------- */
 let dragging=false, lastPX=0, lastPY=0;
 const cvs = renderer.domElement;
-cvs.addEventListener('pointerdown', e=>{ dragging=true; lastPX=e.clientX; lastPY=e.clientY; try{ cvs.setPointerCapture(e.pointerId); }catch(_){} });
+// pinch with two fingers zooms the camera (orbit distance, vehicle chase distance, or the view on foot); the page itself never zooms
+const PTRS=new Map(); let pinchD=0; var VIEWZ=1;
+function pinchDist(){ const a=[...PTRS.values()]; return a.length<2?0:Math.hypot(a[0][0]-a[1][0],a[0][1]-a[1][1]); }
+function zoomBy(k){ if(mode==='orbit'){ orbitR=Math.max(25, Math.min(700, orbitR*k)); ORB.spin=false; }
+  else if(mode==='drive'){ DRV.zoom=Math.max(0.5, Math.min(3, DRV.zoom*k)); }
+  else { VIEWZ=Math.max(0.45, Math.min(1, VIEWZ*k)); fitCamera(); } }
+function orbitStop(){ if(mode==='orbit' && ORB.spin){ ORB.spin=false; showToast('Auto-rotate off: drag to swing, pinch to zoom, joystick / WASD to move. Tap Orbit to restart it'); } }
+cvs.addEventListener('pointerdown', e=>{ PTRS.set(e.pointerId,[e.clientX,e.clientY]); if(PTRS.size===2){ pinchD=pinchDist(); dragging=false; } else { dragging=true; lastPX=e.clientX; lastPY=e.clientY; } orbitStop(); try{ cvs.setPointerCapture(e.pointerId); }catch(_){} });
+for(const ev of ['pointerup','pointercancel']) cvs.addEventListener(ev, e=>{ PTRS.delete(e.pointerId); if(PTRS.size<2) pinchD=0; if(PTRS.size===1){ const p=[...PTRS.values()][0]; dragging=true; lastPX=p[0]; lastPY=p[1]; } });
 cvs.addEventListener('pointermove', e=>{
+  if(PTRS.has(e.pointerId)) PTRS.set(e.pointerId,[e.clientX,e.clientY]);
+  if(PTRS.size>=2){ const d=pinchDist(); if(pinchD>0 && d>0) zoomBy(pinchD/d); pinchD=d; return; }
   if(!dragging) return;
   const dx=e.clientX-lastPX, dy=e.clientY-lastPY; lastPX=e.clientX; lastPY=e.clientY;
   if(mode==='orbit'){ orbitA -= dx*0.005; orbitH = Math.max(8, Math.min(95, orbitH + dy*0.25)); }
@@ -2479,7 +2489,7 @@ cvs.addEventListener('pointermove', e=>{
   else { player.yaw -= dx*0.0042; player.pitch = Math.max(-1.1, Math.min(1.1, player.pitch - dy*0.0042)); }
 });
 addEventListener('pointerup', ()=>{ dragging=false; }); addEventListener('pointercancel', ()=>{ dragging=false; });
-cvs.addEventListener('wheel', e=>{ if(mode==='orbit'){ orbitR=Math.max(45, Math.min(240, orbitR + e.deltaY*0.12)); } else if(mode==='drive'){ DRV.zoom=Math.max(0.6, Math.min(2.2, DRV.zoom + e.deltaY*0.0015)); } }, {passive:true});
+cvs.addEventListener('wheel', e=>{ zoomBy(Math.exp(e.deltaY*0.0012)); }, {passive:true});
 
 const joyVec={x:0,y:0};
 (function joystick(){
@@ -2569,6 +2579,7 @@ const btnTour=document.getElementById('btnTour'), btnOrbit=document.getElementBy
 function setMode(m){
   if(mode==='drive' && m!=='drive') driveExit(true);
   mode=m;
+  if(typeof fitCamera==='function') fitCamera();
   btnTour.setAttribute('aria-pressed', m==='tour'?'true':'false');
   btnOrbit.setAttribute('aria-pressed', m==='orbit'?'true':'false');
   btnSV.setAttribute('aria-pressed', m==='sv'?'true':'false');
@@ -2586,8 +2597,8 @@ function setMode(m){
     let bd=1e9; for(let i=0;i<=300;i++){ const p=koraCurve.getPointAt(i/300); const d=(p.x-player.x)**2+(p.z-player.z)**2; if(d<bd){bd=d; tourU=i/300;} }
     showToast('Walking the kora — clockwise, as pilgrims do');
   }
-  if(m==='orbit'){ const c=VAL.orbitCenter(player.x,player.z); Object.assign(ORB,c); orbitR=c.r; orbitH=c.h; if(c.name!=='Boudhanath') orbitA=Math.atan2(player.x-c.x, player.z-c.z);
-    showToast('Orbit view'+(c.name?' around '+c.name:'')+' — drag to swing around, scroll to zoom'); }
+  if(m==='orbit'){ const c=VAL.orbitCenter(player.x,player.z); Object.assign(ORB,c); ORB.spin=true; orbitR=c.r; orbitH=c.h; if(c.name!=='Boudhanath') orbitA=Math.atan2(player.x-c.x, player.z-c.z);
+    showToast('Orbit view'+(c.name?' around '+c.name:'')+' — touch to stop the rotation, drag to swing, pinch to zoom, joystick to move'); }
   if(m==='walk') showToast('On foot — drag to look, WASD or joystick to walk');
 }
 btnTour.addEventListener('click', ()=> setMode(mode==='tour' ? 'walk' : 'tour'));
@@ -3794,7 +3805,7 @@ driveEnter = function(type){
   if(type==='jet'){ Object.assign(DRV,{air:true, v:150, thr:0.7}); WPN.ammo=4; WPN.reload=0; for(const ms of m.missiles) ms.visible=true; }
   document.body.classList.toggle('flying', type==='heli'||type==='plane'||type==='jet');
   m.g.visible=true; if(m.rider) m.rider.g.visible=true;
-  mode='drive'; player.x=DRV.x; player.z=DRV.z; player.yaw=DRV.yaw;
+  mode='drive'; fitCamera(); player.x=DRV.x; player.z=DRV.z; player.yaw=DRV.yaw;
   ['btnTour','btnOrbit','btnSV'].forEach(id=>document.getElementById(id).setAttribute('aria-pressed','false')); document.getElementById('svBar').classList.remove('on');
   hintEl.innerHTML='W / ↑ go &nbsp;·&nbsp; S brake &nbsp;·&nbsp; A D steer &nbsp;·&nbsp; Space handbrake &nbsp;·&nbsp; H horn &nbsp;·&nbsp; V camera &nbsp;·&nbsp; F get out';
   if(type==='heli') hintEl.innerHTML='W S fly &nbsp;·&nbsp; A D turn &nbsp;·&nbsp; Space up &nbsp;·&nbsp; C down &nbsp;·&nbsp; T / ⏩ turbo &nbsp;·&nbsp; F out';
@@ -5780,7 +5791,10 @@ function animate(){
       camYaw=player.yaw; camPitch=player.pitch;
       setCam(pos.x, EYE, pos.z, camYaw, camPitch, headBob(1.65,dt));
     } else if(mode==='orbit'){
-      if(!dragging && !reduced) orbitA += dt*0.045;
+      if(ORB.spin && !dragging && !reduced) orbitA += dt*0.045;
+      { let f=0, s=0; if(keys['KeyW']||keys['ArrowUp']) f+=1; if(keys['KeyS']||keys['ArrowDown']) f-=1; if(keys['KeyD']||keys['ArrowRight']) s+=1; if(keys['KeyA']||keys['ArrowLeft']) s-=1;
+        f+=-joyVec.y; s+=joyVec.x; if(Math.abs(f)+Math.abs(s)>0.05){ orbitStop(); const v=Math.max(12,orbitR*0.8)*dt, fx=-Math.sin(orbitA), fz=-Math.cos(orbitA);   // move the orbit centre over the ground
+          ORB.x+=(fx*f - fz*s)*v; ORB.z+=(fz*f + fx*s)*v; const g=GY(ORB.x,ORB.z); ORB.y+=(g-ORB.y)*Math.min(1,dt*4); ORB.look=Math.min(ORB.look,10); player.x=ORB.x; player.z=ORB.z; } }
       camera.position.set(ORB.x+Math.sin(orbitA)*orbitR, ORB.y+orbitH, ORB.z+Math.cos(orbitA)*orbitR);
       camera.position.y=Math.max(camera.position.y, GY(camera.position.x,camera.position.z)+3);
       camera.lookAt(ORB.x, ORB.y+ORB.look, ORB.z);
@@ -5839,7 +5853,7 @@ function animate(){
 }
 function fitCamera(){
   camera.aspect=innerWidth/innerHeight;
-  camera.fov = camera.aspect < 0.9 ? 80 : (camera.aspect < 1.3 ? 72 : 66); // widen the view on portrait phones
+  camera.fov = (camera.aspect < 0.9 ? 80 : (camera.aspect < 1.3 ? 72 : 66))*(mode==='walk'?VIEWZ:1); // widen the view on portrait phones; pinch narrows it on foot
   camera.updateProjectionMatrix();
 }
 addEventListener('resize', ()=>{ fitCamera(); renderer.setSize(innerWidth, innerHeight); });
