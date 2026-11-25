@@ -2905,7 +2905,7 @@ function updateBooms(dt){ for(const B of BOOMS){ if(!B.on) continue; B.t+=dt; co
     const fr=s*(0.35+1.1*(1-Math.exp(-T*6))); B.f.position.set(B.x,B.y+T*s*0.25,B.z); B.f.scale.setScalar(fr*2.6); B.f.material.opacity=Math.max(0,1-T/0.9); B.f.material.color.setRGB(1.6,0.7+0.6*Math.exp(-T*3),0.25); B.f.visible=B.f.material.opacity>0.01;
     for(const m of B.sm){ const o=m.userData.o, k=Math.min(1,T/0.6); m.position.set(B.x+o[0]*k, B.y+o[1]+T*s*0.35*o[3], B.z+o[2]*k); m.scale.setScalar(s*(0.3+0.5*k+T*0.12)*o[3]*2.2); m.material.opacity=Math.min(0.55,T*3)*Math.max(0,1-T/7)*Math.min(1,camera.position.distanceTo(m.position)/(m.scale.x*1.6+0.01)); m.visible=T>0.08 && m.material.opacity>0.01; }
     if(T>7){ B.on=false; B.f.visible=false; for(const m of B.sm) m.visible=false; } } }
-function restoreCity(quiet){ const n=VAL.restore(); clearDebris(); clearChunks(); reviveAll(); FIGHT.hp=100; FIGHT.ko=0; if(!quiet) showToast(n?'Rebuilt '+n.toLocaleString('en')+' buildings':'Nothing to rebuild'); return n; }
+function restoreCity(quiet){ const n=VAL.restore(); clearDebris(); clearChunks(); reviveAll(); clearScorch(); FIGHT.hp=100; FIGHT.ko=0; if(!quiet) showToast(n?'Rebuilt '+n.toLocaleString('en')+' buildings':'Nothing to rebuild'); return n; }
 
 /* ---------------- ATOMIC BLAST: fireball, mushroom cloud, dust wall ---------------- */
 const BOMB={gz:new THREE.Vector3(), dist:190, dir:new THREE.Vector3(), built:false, list:[], li:0};   // close enough to watch the city go (was 1.9 km)
@@ -4411,9 +4411,23 @@ function throwGrenade(){ if(SHOTS.filter(s=>s.k==='nade').length>=5) return; GUN
   if(AUD.on&&AUD.ctx) noiseHit(AUD.ctx.currentTime,0.15,900,'bandpass',0.08); }
 function personNear(x,y,z,r){ for(const c of crowd()){ if(c.p.down) continue; if((c.x-x)**2+(c.z-z)**2<r*r && y>c.y-0.2 && y<c.y+c.h+0.2) return true; } return false; }
 function vehNear(x,z,r){ for(const v of VEH) if((v.x-x)**2+(v.z-z)**2<r*r) return true; for(const v of VAL.vveh) if(v.ri>=0 && (v.x-x)**2+(v.z-z)**2<r*r) return true; return false; }
-function explodeAt(x,y,z,k){ const big=k==='rpg', R=big?13:8;
+/* scorch marks: a burnt, broken patch where a blast hit a wall or the ground */
+const scorchTex=canvasTex(128,128,(g,w,h)=>{ const n=makeNoise(11), im=g.createImageData(w,h), d=im.data;
+  for(let y=0;y<h;y++) for(let x=0;x<w;x++){ const dx=(x-64)/64, dy=(y-64)/64, r=Math.hypot(dx,dy), nn=fbm(n,x*0.08,y*0.08,4,1e6,1e6), rr=r*(0.75+0.5*nn);
+    const hole=rr<0.42, a=hole?0.97:Math.max(0,1-(rr-0.42)/0.55)*0.85, v=hole?8+18*nn:28+40*nn+50*Math.max(0,rr-0.6), o=(y*w+x)*4; d[o]=v*1.05; d[o+1]=v*0.95; d[o+2]=v*0.85; d[o+3]=a*255; } g.putImageData(im,0,0); });
+const SCORCH=[]; const scorchGeo=new THREE.PlaneGeometry(1,1);
+function scorch(x,y,z,nx,ny,nz,s){ let m=SCORCH.length<40?null:SCORCH.shift(); if(!m){ m=new THREE.Mesh(scorchGeo, new THREE.MeshStandardMaterial({map:scorchTex, transparent:true, depthWrite:false, roughness:1, polygonOffset:true, polygonOffsetFactor:-4, polygonOffsetUnits:-4})); m.receiveShadow=true; scene.add(m); }
+  SCORCH.push(m); m.visible=true; m.position.set(x+nx*0.06,y+ny*0.06,z+nz*0.06); m.lookAt(x+nx,y+ny,z+nz); m.rotateZ(Math.random()*6.28); m.scale.setScalar(s); }
+function clearScorch(){ for(const m of SCORCH) m.visible=false; }
+function explodeAt(x,y,z,k,dir){ const big=k==='rpg', R=big?13:8;
   boom(x,y+1,z,big?16:11); scareBirds(x,z,120); SIM.panicHold=Math.max(SIM.panicHold,6);
-  if(!(Math.abs(x)<=300&&Math.abs(z)<=300)){ const dead=VAL.destroyNear(x,z,big?11:6,(d)=>d<(big?7:4)?1:0.55); dead.forEach((ps,i)=>{ shatter(ps,'blast',x,z,big?26:16); if(i<4) burstDebris(ps,3,1.8); }); if(dead.length && Math.random()<0.4) igniteBuilding(dead[0]); }
+  const g0=GY(x,z), onGround=y<g0+0.6;
+  if(!(Math.abs(x)<=300&&Math.abs(z)<=300)){ const D=VAL.damageAt(x,y,z,big?7:4.5,big?7:3.5);
+    D.killed.forEach((ps,i)=>{ shatter(ps,'blast',x,z,big?24:14); if(i<4) burstDebris(ps,3,1.8); });                        // brought down: the whole building in blocks
+    for(const c of D.cut){ shatter(Object.assign({},c.ps,{base:c.from, oldTop:c.to, area:c.ps.area}),'blast',x,z,big?20:12); burstDebris(c.ps,3,1.6); }   // top floors blown off
+    for(const h of D.hurt.slice(0,3)){ const s=big?2.4:1.6; shatter({pts:[[x-s,z-s],[x+s,z-s],[x+s,z+s],[x-s,z+s]], c:[x,z], base:Math.max(h.ps.base||g0,y-s), oldTop:y+s, area:s*s*4, col:h.ps.col||[0.6,0.56,0.5]},'blast',x-(dir?dir.x:0)*3,z-(dir?dir.z:0)*3,big?14:9); }   // a piece of wall
+    if((D.killed.length||D.cut.length) && Math.random()<0.35) igniteBuilding((D.killed[0]||D.cut[0].ps)); }
+  if(onGround || !dir) scorch(x,g0+0.02,z,0,1,0,big?5:3.2); else { const L=Math.hypot(dir.x,dir.z)||1; scorch(x-dir.x/L*0.25,y,z-dir.z/L*0.25,-dir.x/L,0,-dir.z/L,big?4.2:2.6); }
   for(const c of crowd()){ const d=Math.hypot(c.x-x,c.z-z); if(d>R*1.5) continue;                          // people: knocked flying
     const p=c.p, a=Math.atan2(c.x-x,c.z-z), f=Math.max(0,1-d/(R*1.5)); knockDown(p, d<R*0.7, x, z); p.fight=null;
     p.flyP={vx:Math.sin(a)*(3+f*13), vz:Math.cos(a)*(3+f*13), vy:3+f*9}; p.liftY=Math.max(p.liftY||0,0.05); }
@@ -4431,7 +4445,7 @@ function boomTick(dt){
   for(let i=SHOTS.length-1;i>=0;i--){ const S=SHOTS[i]; S.t+=dt; const q=S.p.clone().addScaledVector(S.v,dt);
     if(S.k==='rpg'){ let hit=null; const L=S.p.distanceTo(q), n=Math.max(1,Math.ceil(L/1.5));
       for(let j=1;j<=n && !hit;j++){ const t=j/n, x=S.p.x+(q.x-S.p.x)*t, y=S.p.y+(q.y-S.p.y)*t, z=S.p.z+(q.z-S.p.z)*t; if(wallAt(x,y,z) || personNear(x,y,z,0.7) || (y<GY(x,z)+2 && vehNear(x,z,1.6))) hit=[x,y,z]; }
-      if(hit || S.t>4){ const h=hit||[q.x,q.y,q.z]; explodeAt(h[0],h[1],h[2],'rpg'); scene.remove(S.m); SHOTS.splice(i,1); continue; }
+      if(hit || S.t>4){ const h=hit||[q.x,q.y,q.z]; explodeAt(h[0],h[1],h[2],'rpg',S.v); scene.remove(S.m); SHOTS.splice(i,1); continue; }
       S.p.copy(q); S.m.position.copy(q); S.m.lookAt(_ro.copy(q).sub(S.v)); S.tr+=dt; while(S.tr>0.03){ S.tr-=0.03; if(S.t>0.08) fxPuff(q.x,q.y,q.z,0.3); } }
     else { S.v.y-=9.8*dt; const g=GY(q.x,q.z);
       if(wallAt(q.x,Math.max(q.y,g+0.2),q.z) && q.y>g+0.15){ S.v.x*=-0.4; S.v.z*=-0.4; q.x=S.p.x; q.z=S.p.z; }          // bounces off walls
@@ -4442,7 +4456,7 @@ function boomTick(dt){
   for(const p of PEOPLE.concat(VAL.vpeople)){ const F=p.flyP; if(!F) continue; F.vy-=9.8*dt; p.x+=F.vx*dt; p.z+=F.vz*dt; p.liftY=Math.max(0,(p.liftY||0)+F.vy*dt); F.vx*=Math.exp(-dt*0.4); F.vz*=Math.exp(-dt*0.4);
     if(footBlocked(p.x,p.z)){ p.x-=F.vx*dt; p.z-=F.vz*dt; F.vx*=-0.2; F.vz*=-0.2; }
     if(p.liftY<=0 && F.vy<0){ p.liftY=0; p.flyP=null; } } }
-window.__foot={explode:(x,y,z,k)=>explodeAt(x,y,z,k), shots:SHOTS, FIGHT, fighters:()=>fighters(), startFight:(p)=>startFight(p), TP, GUN, AV, crowd:()=>crowd(), melee:(k)=>melee(k), fire:()=>fireGun()};   // debugging / future multiplayer hooks
+window.__foot={explode:(x,y,z,k,d)=>explodeAt(x,y,z,k,d), fireRocket:()=>fireRocket(), shots:SHOTS, FIGHT, fighters:()=>fighters(), startFight:(p)=>startFight(p), TP, GUN, AV, crowd:()=>crowd(), melee:(k)=>melee(k), fire:()=>fireGun()};   // debugging / future multiplayer hooks
 
 
 /* ====================================================================================================
@@ -4576,7 +4590,7 @@ const POLY={start:null, list:[]};
     for(const [k,v] of lowered) HF[k]=v;
     SWF={x0, z0, x1:x0+HALF*2, z1:z0+HALF*2, st, n, H, cx, cz, top, Rat}; } }
 // destruction state (see 'destruction' below): one byte per building, declared early so colliders and tile builds can read it
-const DEAD=new Uint8Array(NBX+POLY.list.length), DIRTY=new Set(), HITS=new Map(); let deadN=0;
+const DEAD=new Uint8Array(NBX+POLY.list.length), DIRTY=new Set(), HITS=new Map(), CUT=new Map(); let deadN=0;   // CUT: id → remaining height (top floors blown off)
 const RUBBLE=[toLin(122,106,92),toLin(98,86,76),toLin(136,118,100)];
 
 /* ---------------- roads + rivers: polylines in 0.5 m units, indexed per tile ---------------- */
@@ -4840,6 +4854,7 @@ function tileCol(t){
     items.push({t:0, cx, cz, ca:Math.cos(a), sa:Math.sin(a), hw, hl, minx:cx-e, maxx:cx+e, minz:cz-f, maxz:cz+f, top:gy(cx,cz)+BOX.H[i]/2+((BOX.K[i]&15)===2&&hw<8&&hl<8?Math.min(hw,hl)*0.9:0), id:i, tl:t}); }
   for(let i=POLY.start[t];i<POLY.start[t+1];i++){ const p=POLY.list[i]; let minx=1e9,maxx=-1e9,minz=1e9,maxz=-1e9; for(const q of p.ring){ minx=Math.min(minx,q[0]); maxx=Math.max(maxx,q[0]); minz=Math.min(minz,q[1]); maxz=Math.max(maxz,q[1]); }
     items.push({t:1, poly:p.ring, minx,maxx,minz,maxz, top:gy(p.cx,p.cz)+p.h, id:NBX+i, tl:t}); }
+  for(const it of items) if(!DEAD[it.id] && CUT.has(it.id)){ const c=itemC(it); it.top=Math.min(it.top, gy(c[0],c[1])+CUT.get(it.id)); }
   for(const it of items) if(DEAD[it.id]){ const c=itemC(it), g=gy(c[0],c[1]); it.top=g+Math.min(1.7,0.7+Math.max(0,it.top-g)*0.05); it.dead=true; }
   const G=24, NG=Math.ceil(TILE/G)+4, grid=new Array(NG*NG);
   for(const it of items){ for(let gx=Math.floor((it.minx-ox)/G)+2; gx<=Math.floor((it.maxx-ox)/G)+2; gx++) for(let gz=Math.floor((it.minz-oz)/G)+2; gz<=Math.floor((it.maxz-oz)/G)+2; gz++){ if(gx<0||gz<0||gx>=NG||gz>=NG) continue; (grid[gz*NG+gx]=grid[gz*NG+gx]||[]).push(it); } }
@@ -4876,7 +4891,7 @@ function buildBld(t, lod){
   const pushV=(x,y,z,c,top,h,kd,nx,ny,nz,u)=>{ P.push(x-cx0,y,z-cz0); C.push(c[0]*255|0,c[1]*255|0,c[2]*255|0); TH.push(top,h); KD.push(kd); if(near){ Nn.push(nx,ny,nz); Uu.push(u); } return nv++; };
   const tanks=[], mumty=[];
   const one=(ring, cx, cz, h, k, i, smallTemple)=>{
-    const di=i<1e6?i:NBX+(i-1e6), dead=DEAD[di]===1; if(dead){ h=Math.min(1.7,0.7+h*0.05); k=(k&~15)|10; smallTemple=null; }
+    const di=i<1e6?i:NBX+(i-1e6), dead=DEAD[di]===1; if(!dead && CUT.has(di)){ h=Math.min(h,CUT.get(di)); smallTemple=null; } if(dead){ h=Math.min(1.7,0.7+h*0.05); k=(k&~15)|10; smallTemple=null; }
     const cat=k&15; let gmin=1e9; for(const q of ring) gmin=Math.min(gmin, gy(q[0],q[1]));
     const g0=gy(cx,cz), top=g0+h, bot=gmin-0.6;
     const nw=inZones(NZ,cx,cz), strip=inZones(STRIP_ZONES,cx,cz);
@@ -5666,12 +5681,24 @@ function blastList(x,z,R){ const out=[]; if(inBoudha(x,z)&&R<50) return out; con
     for(const it of c.items){ if(it.dead) continue; const p=itemC(it), d=Math.hypot(p[0]-x,p[1]-z); if(d<R && !inBoudha(p[0],p[1])) out.push({it,d,h:it.top-gy(p[0],p[1])}); } }
   return out.sort((a,b)=>a.d-b.d); }
 function destroyNear(x,z,R,pf){ const out=[]; for(const e of blastList(x,z,R)){ if(Math.random()<(pf?pf(e.d,e.h):1)){ const ps=killItem(e.it); if(ps) out.push(ps); } } return out; }
+/* an explosion next to buildings: damage adds up per building. A hit takes a piece out (and the floors above the hit when it lands high);
+   enough hits and the whole building comes down. Returns what broke so the caller can throw the blocks. */
+function footDist(it,x,z){ if(it.t===0){ const dx=x-it.cx, dz=z-it.cz, lx=dx*it.ca+dz*it.sa, lz=-dx*it.sa+dz*it.ca; return Math.hypot(Math.max(0,Math.abs(lx)-it.hw), Math.max(0,Math.abs(lz)-it.hl)); }
+  return pointInPoly(x,z,it.poly)?0:distToPoly(x,z,it.poly); }
+function damageAt(x,y,z,R,power){ const out={killed:[], cut:[], hurt:[]}; if(inBoudha(x,z)) return out;
+  for(const e of blastList(x,z,R+40)){ const it=e.it, d=footDist(it,x,z); if(d>R) continue; const c=itemC(it), g=gy(c[0],c[1]), H=it.top-g, ps=pseudoOf(it); if(!ps.col){ try{ ps.col=bldColour(it.id,c[0],c[1]); }catch(_){} }
+    const area=it.t===0?4*it.hw*it.hl:(it.maxx-it.minx)*(it.maxz-it.minz)*0.7, need=Math.max(10,Math.min(40,8+area/25)), dmg=power*(1-d/R);
+    const hp=(HITS.get(it.id)||0)+dmg; HITS.set(it.id,hp);
+    if(hp>=need){ const k=killItem(it); if(k) out.killed.push(k); continue; }
+    if(d<R*0.45){ if(y>g+H*0.45 && H>5){ const keep=Math.max(3, Math.floor((y-g-1.2)/3)*3+0.6); if(keep<H-0.5){ const old=it.top; CUT.set(it.id,keep); it.top=g+keep; ps.wallTop=it.top; DIRTY.add(it.tl); out.cut.push({ps, from:g+keep, to:old}); continue; } }
+      out.hurt.push({ps}); } }
+  return out; }
 function hitAt(x,y,z,dmg){ if(inBoudha(x,z)) return null;   // a gun round: damage piles up until the building gives way
   for(const it of itemsAt(x,z)){ if(it.dead || !inItem(it,x,z,0.2) || y>it.top+0.3) continue;
     const area=it.t===0?4*it.hw*it.hl:(it.maxx-it.minx)*(it.maxz-it.minz)*0.7, need=Math.max(4,Math.min(30,3+area/25));
     const hp=(HITS.get(it.id)||0)+dmg; HITS.set(it.id,hp); return {hit:true, killed: hp>=need ? killItem(it) : null, ps:pseudoOf(it)}; }
   return null; }
-function restoreAll(){ const n=deadN; DEAD.fill(0); deadN=0; HITS.clear(); COL.clear(); for(const [t,T] of TILES) if(T.bld) DIRTY.add(t); return n; }
+function restoreAll(){ const n=deadN+CUT.size; DEAD.fill(0); deadN=0; HITS.clear(); CUT.clear(); COL.clear(); for(const [t,T] of TILES) if(T.bld) DIRTY.add(t); return n; }
 function flushDestroyed(){ if(!DIRTY.size) return; let n=0; for(const t of DIRTY){ DIRTY.delete(t); const T=TILES.get(t); if(T && T.bld){ dropBld(T); T.bld=buildBld(t,T.lod); } if(++n>=(MOBILE?4:8)) break; } }
 function pseudoOf(it){ let b=PSEUDO.get(it); if(b) return b;
   let pts, cx, cz, area;
@@ -5813,7 +5840,7 @@ function orbitCenter(x,z){
   return {x, y:gy(x,z), z, look:5, r:80, h:34, name:''}; }
 let firstStream=true;
 camera.far=150000; camera.updateProjectionMatrix();
-return {vveh:VVEH, setFull:(on)=>{ FULL=!!on; lastCX=1e9; }, full:()=>FULL, blastList, kill:killItem, destroyNear, hitAt, restore:restoreAll, deadCount:()=>deadN, orbitCenter, stats:STATS, wanted:()=>queue.length, lm:LM_TOPS, dhara:DHARA, vpeople:VPEO, eyeY, walkK, waterInfo, bldAt, bldsNear, gy, inCircle, inBoudha, collides:collidesV, roofY, roadsNear, minimap, update, stream, X0, Z0, SPAN, E0:VM.E0, DATUM:VM.DATUM, CX, CZ, RAD, TILES, ovCanvas, runway:()=>VALLEY.runway, meta:VM};
+return {damageAt, vveh:VVEH, setFull:(on)=>{ FULL=!!on; lastCX=1e9; }, full:()=>FULL, blastList, kill:killItem, destroyNear, hitAt, restore:restoreAll, deadCount:()=>deadN, orbitCenter, stats:STATS, wanted:()=>queue.length, lm:LM_TOPS, dhara:DHARA, vpeople:VPEO, eyeY, walkK, waterInfo, bldAt, bldsNear, gy, inCircle, inBoudha, collides:collidesV, roofY, roadsNear, minimap, update, stream, X0, Z0, SPAN, E0:VM.E0, DATUM:VM.DATUM, CX, CZ, RAD, TILES, ovCanvas, runway:()=>VALLEY.runway, meta:VM};
 })();
 function GY(x,z){ return VAL.gy(x,z); }
 
