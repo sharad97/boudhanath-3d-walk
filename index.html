@@ -3418,6 +3418,7 @@ body.flying #flyBtns{display:flex;}
   #speedo{right:calc(124px + env(safe-area-inset-right));}
   body:has(#drivePanel:not([hidden])) #titleCard, body:has(#simPanel:not([hidden])) #titleCard{display:none;}
   body.flying #speedo{left:calc(218px + env(safe-area-inset-left));bottom:calc(16px + env(safe-area-inset-bottom));}
+  body.flying #titleCard{display:none;}
   #simPanel,#drivePanel{left:calc(150px + env(safe-area-inset-left));}
 }`;
 document.head.appendChild(css);
