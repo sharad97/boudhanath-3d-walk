@@ -2357,7 +2357,7 @@ function tryMove(dx, dz){
 /* ---------- look & joystick input ---------- */
 let dragging=false, lastPX=0, lastPY=0;
 const cvs = renderer.domElement;
-cvs.addEventListener('pointerdown', e=>{ dragging=true; lastPX=e.clientX; lastPY=e.clientY; cvs.setPointerCapture(e.pointerId); });
+cvs.addEventListener('pointerdown', e=>{ dragging=true; lastPX=e.clientX; lastPY=e.clientY; try{ cvs.setPointerCapture(e.pointerId); }catch(_){} });
 cvs.addEventListener('pointermove', e=>{
   if(!dragging) return;
   const dx=e.clientX-lastPX, dy=e.clientY-lastPY; lastPX=e.clientX; lastPY=e.clientY;
@@ -2373,7 +2373,7 @@ const joyVec={x:0,y:0};
   const joy=document.getElementById('joy'), knob=document.getElementById('joyKnob');
   let id=null;
   function setKnob(dx,dy){ knob.style.transform=`translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`; }
-  joy.addEventListener('pointerdown', e=>{ id=e.pointerId; joy.setPointerCapture(id); move(e); audioUnlock(); });
+  joy.addEventListener('pointerdown', e=>{ id=e.pointerId; try{ joy.setPointerCapture(id); }catch(_){} move(e); audioUnlock(); });
   joy.addEventListener('pointermove', e=>{ if(e.pointerId===id) move(e); });
   function move(e){
     const r=joy.getBoundingClientRect(); let dx=e.clientX-(r.left+r.width/2), dy=e.clientY-(r.top+r.height/2);
@@ -3322,7 +3322,31 @@ button,a,.act,.simT{touch-action:manipulation;}
 #speedo{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(58px + env(safe-area-inset-bottom));z-index:5;display:none;padding:6px 16px;border-radius:999px;background:rgba(20,14,8,.72);border:1px solid rgba(212,160,23,.35);color:#ffe9c4;font-weight:700;font-size:15px;font-variant-numeric:tabular-nums;backdrop-filter:blur(6px);}
 #speedo small{font-weight:500;color:var(--ink-dim);font-size:11px;margin-left:6px;}
 @media (pointer:coarse){ #drivePanel{bottom:calc(152px + env(safe-area-inset-bottom));} #drivePanel .k{display:none;} #speedo{bottom:calc(150px + env(safe-area-inset-bottom));} }
-@media (max-width:560px){ #drivePanel{top:184px;bottom:auto;} }`;
+@media (max-width:560px){ #drivePanel{top:184px;bottom:auto;} }
+/* phones: icon-only action buttons, panels beside them, safe areas (notch / home bar) */
+#titleCard{top:calc(12px + env(safe-area-inset-top));left:calc(12px + env(safe-area-inset-left));}
+#mapWrap{top:calc(12px + env(safe-area-inset-top));right:calc(12px + env(safe-area-inset-right));}
+#actions{right:calc(12px + env(safe-area-inset-right));}
+#modeToast{top:calc(16px + env(safe-area-inset-top));max-width:calc(100vw - 24px);white-space:normal;text-align:center;}
+@media (max-width:560px), (pointer:coarse) and (max-height:500px){
+  #actions{gap:6px;}
+  #actions .act{font-size:0;gap:0;width:46px;height:46px;padding:0;justify-content:center;}
+  #actions .act svg{width:20px;height:20px;}
+  #titleCard{max-width:calc(100vw - 168px - env(safe-area-inset-left) - env(safe-area-inset-right));padding:8px 11px 24px;}
+  #titleCard h1{font-size:16px;}
+  #titleCard p{font-size:10.5px;line-height:1.35;}
+  #simPanel,#drivePanel{left:12px;right:auto;width:calc(100vw - 86px);top:calc(150px + env(safe-area-inset-top));bottom:auto;}
+  #drivePanel p.k,#simPanel h2 small{display:none;}
+  #speedo{left:auto;right:70px;transform:none;bottom:calc(20px + env(safe-area-inset-bottom));}
+}
+@media (pointer:coarse) and (max-height:500px){
+  #actions{flex-wrap:wrap-reverse;max-height:calc(100vh - 24px - env(safe-area-inset-bottom));align-content:flex-start;}
+  #simPanel,#drivePanel{top:12px;width:min(340px,calc(100vw - 200px));max-height:calc(100vh - 24px);overflow:auto;left:calc(150px + env(safe-area-inset-left));}
+  #mapWrap{display:none;}
+  #titleCard{max-width:280px;}
+  body:has(#drivePanel:not([hidden])) #titleCard, body:has(#simPanel:not([hidden])) #titleCard{display:none;}
+  #simPanel,#drivePanel{left:calc(150px + env(safe-area-inset-left));}
+}`;
 document.head.appendChild(css);
 const ICON={
   car:'<path d="M3 16v-3l2-5h14l2 5v3"/><path d="M3 16h18v2H3z"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/><path d="M6 12h12"/>',
@@ -3332,6 +3356,7 @@ const ICON={
 const btnDrive=document.createElement('button'); btnDrive.className='act'; btnDrive.id='btnDrive'; btnDrive.setAttribute('aria-pressed','false');
 btnDrive.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">'+ICON.car+'</svg>Drive';
 document.getElementById('actions').insertBefore(btnDrive, document.getElementById('btnSim'));
+document.querySelectorAll('#actions .act').forEach(b=>{ if(!b.getAttribute('aria-label')) b.setAttribute('aria-label', b.textContent.trim()); b.title=b.textContent.trim(); });
 const panel=document.createElement('section'); panel.id='drivePanel'; panel.className='panel'; panel.hidden=true; panel.setAttribute('aria-label','Drive a vehicle');
 panel.innerHTML='<h2>Ride around Boudha <small class="k">F get in / out</small></h2><div id="driveGrid">'+
   [['car','Car'],['moto','Motorbike'],['bike','Bicycle']].map(([k,l])=>`<button class="simT" data-veh="${k}" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICON[k]}</svg>${l}</button>`).join('')+
