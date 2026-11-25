@@ -3888,7 +3888,7 @@ THREE.ShaderChunk.fog_fragment = `#ifdef USE_FOG
 #ifdef FOG_EXP2
   float fdN=min(vFogDepth,400.0); float fTau=fogDensity*fogDensity*fdN*fdN;
   float fHa=max(0.5*(cameraPosition.y+vFogWY),0.0);
-  fTau+=max(vFogDepth-400.0,0.0)*fogDensity*fogDensity*72.0*exp(-fHa/700.0);
+  fTau+=max(vFogDepth-400.0,0.0)*fogDensity*fogDensity*46.0*exp(-fHa/700.0);
   float fogFactor=1.0-exp(-fTau);
 #else
   float fogFactor=smoothstep(fogNear,fogFar,vFogDepth);
@@ -3904,7 +3904,7 @@ const OV = MOBILE ? 2048 : 4096, MPP=SPAN/OV;
 const ovCanvas=document.createElement('canvas'); ovCanvas.width=ovCanvas.height=OV;
 const og=ovCanvas.getContext('2d', {willReadFrequently:true});
 { const base=document.createElement('canvas'); base.width=base.height=LN; const bg=base.getContext('2d'); const img=bg.createImageData(LN,LN), d=img.data;
-  const PAL=[[146,136,98],[50,72,42],[104,114,68],[136,138,84],[150,138,122],[154,144,134],[140,134,126],[84,114,60],[64,86,92],[88,100,62]];
+  const PAL=[[146,136,98],[44,70,38],[100,116,64],[128,134,78],[128,110,90],[134,118,100],[132,124,112],[74,110,52],[64,86,92],[80,100,56]];   // built-up land is warm brick-dust brown seen from above
   const nz=makeNoise(91);
   for(let j=0;j<LN;j++){ const z=Z0+(j+0.5)*LS;
     for(let i=0;i<LN;i++){ const x=X0+(i+0.5)*LS, k=LC[j*LN+i]; let c=PAL[k]||PAL[0];
@@ -3913,6 +3913,7 @@ const og=ovCanvas.getContext('2d', {willReadFrequently:true});
       let sh=1+Math.max(-0.22,Math.min(0.22,hl/LS*0.9));
       let r=c[0], g=c[1], b=c[2];
       if(k===0){ const t=n; r=150*(1-t)+112*t; g=132*(1-t)+130*t; b=96*(1-t)+78*t; }        // fields: brick-brown to green
+      if(k===4 && n>0.56){ const f=Math.min(1,(n-0.56)*4)*0.6; r=r*(1-f)+70*f; g=g*(1-f)+100*f; b=b*(1-f)+54*f; }   // yards and garden trees between houses
       if(h>650 && k!==8){ const f=Math.min(1,(h-650)/700)*0.55; r=r*(1-f)+48*f; g=g*(1-f)+66*f; b=b*(1-f)+40*f; }   // higher rim: greener, darker
       const v=0.9+0.2*n; const o=(j*LN+i)*4; d[o]=r*sh*v; d[o+1]=g*sh*v; d[o+2]=b*sh*v; d[o+3]=255; } }
   bg.putImageData(img,0,0); og.imageSmoothingEnabled=true; og.drawImage(base,0,0,OV,OV); }
@@ -3931,6 +3932,10 @@ const NBX=VM.nbox, BOX={};
     for(let i=start[t];i<start[t+1];i++){ const zz=dxz[i]; acc+=(zz>>>1)^-(zz&1); X[i]=ox+acc/4; Z[i]=oz+fz[i]/4; } }
   Object.assign(BOX,{start,X,Z,W:fw,L:fl,A:fa,H:fh,K:fk});
 }
+{ const G=1024, den=new Float32Array(G*G), sc=G/SPAN; for(let i=0;i<BOX.X.length;i++){ const a=((BOX.X[i]-X0)*sc)|0, b=((BOX.Z[i]-Z0)*sc)|0; if(a>=0&&b>=0&&a<G&&b<G) den[b*G+a]+=BOX.W[i]*BOX.L[i]/16; }
+  const c=document.createElement('canvas'); c.width=c.height=G; const g=c.getContext('2d'), im=g.createImageData(G,G), d=im.data, cell=(SPAN/G)**2;
+  for(let i=0;i<G*G;i++){ const f=Math.min(1,den[i]/cell*1.6); if(f<=0) continue; const h=(Math.sin(i*12.9898)*43758.5453)%1, v=0.85+0.3*Math.abs(h); d[i*4]=150*v; d[i*4+1]=112*v; d[i*4+2]=86*v; d[i*4+3]=f*190; }
+  g.putImageData(im,0,0); og.imageSmoothingEnabled=true; og.drawImage(c,0,0,OV,OV); }
 const POLY={start:null, list:[]};
 { const b=await unpack(VALLEY.poly); VALLEY.poly=null; const cnt=new Uint32Array(b.buffer.slice(0,NT*NT*4)); const s=new Int16Array(b.buffer.slice(NT*NT*4));
   const start=new Uint32Array(NT*NT+1); for(let t=0;t<NT*NT;t++) start[t+1]=start[t]+cnt[t];
@@ -4014,11 +4019,12 @@ const ovTex=new THREE.CanvasTexture(ovCanvas); ovTex.colorSpace=THREE.SRGBColorS
 /* ---------------- terrain material: Boudha's own dirt inside the flat zone, the overview outside ---------------- */
 let dirtL=0.36; { try{ const im=TEX.dirt.image, c=document.createElement('canvas'); c.width=c.height=16; const g=c.getContext('2d'); g.drawImage(im,0,0,16,16); const d=g.getImageData(0,0,16,16).data; let s=0; for(let i=0;i<d.length;i+=4) s+=(Math.pow(d[i]/255,2.2)+Math.pow(d[i+1]/255,2.2)+Math.pow(d[i+2]/255,2.2))/3; dirtL=Math.max(0.03,s/256); }catch(_){} }
 const dirtT=TEX.dirt.clone(); dirtT.repeat.set(1,1); dirtT.needsUpdate=true; const dirtNT=TEX.dirtN.clone(); dirtNT.repeat.set(1,1); dirtNT.needsUpdate=true;
-const terMat=patchMaterial(new THREE.MeshStandardMaterial({map:dirtT, normalMap:dirtNT, roughness:1}), {wet:0.6});
+// valley ground is darkened and saturated in the shader below: the sun and sky light lift dark ground a lot when seen from above
+const terMat=patchMaterial(new THREE.MeshStandardMaterial({map:dirtT, normalMap:dirtNT, roughness:1}), {});
 { const prev=terMat.onBeforeCompile; terMat.customProgramCacheKey=()=>'valleyTerrain';
   terMat.onBeforeCompile=(sh)=>{ prev(sh); sh.uniforms.uOV={value:ovTex}; sh.uniforms.uOVo={value:new THREE.Vector3(X0,Z0,SPAN)}; sh.uniforms.uDL={value:dirtL};
     sh.fragmentShader=sh.fragmentShader.replace('#include <common>','#include <common>\nuniform sampler2D uOV; uniform vec3 uOVo; uniform float uDL;')
-      .replace('#include <map_fragment>','#include <map_fragment>\n{ vec3 ov=texture2D(uOV,(vWPos.xz-uOVo.xy)/uOVo.z).rgb*vec3(0.86,0.8,0.72); float cheb=max(abs(vWPos.x),abs(vWPos.z));\n float wv=smoothstep(520.0,820.0,cheb); float dl=clamp(dot(diffuseColor.rgb,vec3(0.3333))/max(uDL,0.02),0.55,1.45);\n float dd=clamp(length(vWPos-cameraPosition)/900.0,0.0,1.0);\n diffuseColor.rgb=mix(diffuseColor.rgb, ov*mix(mix(0.55+0.45*dl,1.0,dd),1.0,0.0), wv); }'); };
+      .replace('#include <map_fragment>','#include <map_fragment>\n{ vec3 ov=texture2D(uOV,(vWPos.xz-uOVo.xy)/uOVo.z).rgb; float ovl=dot(ov,vec3(0.3333)); ov=max(mix(vec3(ovl),ov,1.45),0.0)*vec3(0.6,0.56,0.46); float cheb=max(abs(vWPos.x),abs(vWPos.z));\n float wv=smoothstep(520.0,820.0,cheb); float dl=clamp(dot(diffuseColor.rgb,vec3(0.3333))/max(uDL,0.02),0.55,1.45);\n float dd=clamp(length(vWPos-cameraPosition)/900.0,0.0,1.0);\n diffuseColor.rgb=mix(diffuseColor.rgb, ov*mix(mix(0.55+0.45*dl,1.0,dd),1.0,0.0), wv); }'); };
 }
 
 /* ---------------- terrain meshes: near (60 m) + mid (120 m) chunks around the viewer, far (240/480 m) everywhere else ---------------- */
@@ -4139,7 +4145,9 @@ vec3 vEm=vec3(0.0);
 { float kd=floor(vKind+0.5); float cat=mod(kd,16.0); float newar=mod(floor(kd/16.0),2.0);
   vec3 wn=${near?'normalize(vWN)':'normalize(cross(dFdx(vLoc),dFdy(vLoc)))'};
   float seed=h21(vec2(vTH.x*1.7,vTH.y*3.1)); float yb=vWPos.y-(vTH.x-vTH.y);
-  if(abs(wn.y)>0.6){ float rl=dot(texture(uPl, vLoc.xz/7.0).rgb,vec3(0.333)); vec3 rt=vec3(rl)*vec3(0.66,0.645,0.62)*(0.9+0.2*h21(floor(vLoc.xz*0.25))); diffuseColor.rgb = cat>8.5 ? diffuseColor.rgb : rt*(newar>0.5?vec3(0.95,0.82,0.75):vec3(0.92))*(0.85+0.3*seed); }
+  if(abs(wn.y)>0.6){ float rl=dot(texture(uPl, vLoc.xz/7.0).rgb,vec3(0.333)); float rs=h21(vec2(vTH.y*5.31+seed*17.0, kd*0.37+vTH.x*2.1));
+    vec3 rc = rs<0.36 ? vec3(0.44,0.39,0.32) : rs<0.58 ? vec3(0.47,0.35,0.24) : rs<0.72 ? vec3(0.42,0.21,0.14) : rs<0.88 ? vec3(0.32,0.30,0.28) : vec3(0.56,0.53,0.48);
+    vec3 rt=rc*(0.42+0.34*rl)*(0.9+0.2*h21(floor(vLoc.xz*0.25))); diffuseColor.rgb = cat>8.5 ? diffuseColor.rgb : rt*(newar>0.5?vec3(1.0,0.86,0.78):vec3(1.0))*(0.85+0.3*seed); }
   else if(abs(wn.y)>0.12){ diffuseColor.rgb = cat>8.5 ? diffuseColor.rgb : vec3(0.075,0.04,0.028); }
   else { float u=${near?'vU':'dot(vLoc.xz,normalize(vec2(-wn.z,wn.x)))'}; facadeWall(u, yb, vTH.y, kd, seed, diffuseColor.rgb, vEm); }
 }`).replace('#include <emissivemap_fragment>','#include <emissivemap_fragment>\ntotalEmissiveRadiance+=vEm;'); };
@@ -4148,7 +4156,7 @@ vec3 vEm=vec3(0.0);
 const bMat=makeBldMat(false), bMatN=makeBldMat(true);
 const tankMat=patchMaterial(new THREE.MeshStandardMaterial({color:0xffffff, roughness:0.45}), {});
 const tankGeo=new THREE.CylinderGeometry(0.62,0.62,1.3,10).translate(0,0.65,0);
-const mumtyMat=patchMaterial(new THREE.MeshStandardMaterial({map:FAC_U.uPl.value, roughness:0.92}), {});
+const mumtyMat=patchMaterial(new THREE.MeshStandardMaterial({map:FAC_U.uPl.value, color:0xd8c8b2, roughness:0.92}), {});
 const mumtyGeo=new THREE.BoxGeometry(2.6,2.4,2.8).translate(0,1.2,0);
 const roadMat=patchMaterial(new THREE.MeshStandardMaterial({map:TEX.asphalt, normalMap:TEX.asphaltN, normalScale:new THREE.Vector2(0.5,0.5), vertexColors:true, roughness:0.96, polygonOffset:true, polygonOffsetFactor:-4, polygonOffsetUnits:-8}), {wet:0.5});
 const riverN=waterN.clone(); riverN.wrapS=riverN.wrapT=THREE.RepeatWrapping; riverN.repeat.set(0.5,0.5); riverN.needsUpdate=true;
@@ -4162,11 +4170,13 @@ const trunkGeo=mergeVC([[new THREE.CylinderGeometry(0.13,0.24,3.4,6,1,true).tran
 const leafGeo=BGU.mergeGeometries([cardCluster(0,4.6,0,2.4), cardCluster(1.1,3.9,0.2,1.9), cardCluster(-1.0,4.1,-0.4,1.9), cardCluster(0.2,4.0,1.1,1.8), cardCluster(-0.3,3.7,-1.1,1.7)]);
 const pineTrunk=mergeVC([[new THREE.CylinderGeometry(0.1,0.22,6.2,5,1,true).translate(0,3.1,0),[1,1,1]]]);
 const pineGeo=BGU.mergeGeometries([cardCluster(0,2.6,0,2.6), cardCluster(0,3.9,0,2.1), cardCluster(0,5.1,0,1.6), cardCluster(0,6.1,0,1.0)].map(g=>{ g.scale(1,1.25,1); return g; }));
+const farLeafMat=patchMaterial(new THREE.MeshStandardMaterial({flatShading:true, roughness:0.95}), {});
+const farBlob=new THREE.IcosahedronGeometry(1,0).scale(2.5,1.9,2.5).translate(0,4.3,0), farPine=new THREE.ConeGeometry(1.7,5.5,6).translate(0,4.0,0);   // 20 / 12 triangles
 const TREE_COLS=[toLin(58,84,44),toLin(70,96,50),toLin(48,72,40),toLin(86,104,56),toLin(64,90,62)];
 
 /* ---------------- per-building character (same tints and styles as the Boudha houses) ---------------- */
 const NZ=NEWAR_ZONES();
-const PL_TINTS=PLASTER_TINTS.map(h=>hexRGB(h)), COM_TINTS=['#e8e8e4','#d4d9de','#c9d2da','#eeeae2'].map(h=>hexRGB(h));
+const PL_TINTS=['#d9b48a','#c98f62','#dcbc6e','#cf8a74','#e2cfa8','#a9bfc8','#b9c98f','#df9f72','#c4bbaa','#e8dfcf','#b8784f','#d9a898','#d49a82','#a9c0a2'].map(h=>hexRGB(h)), COM_TINTS=['#e8e8e4','#d4d9de','#c9d2da','#eeeae2'].map(h=>hexRGB(h));
 function bChar(i, cat, h, nw, strip){
   const r=Math.abs(Math.sin(i*12.9898+cat*3.3)*43758.5453)%1, r2=Math.abs(Math.sin(i*78.233)*12543.13)%1;
   let style;
@@ -4174,7 +4184,7 @@ function bChar(i, cat, h, nw, strip){
   else if(nw) style = r<0.45?2: r<0.8?1:0;
   else if(strip) style = r<0.35?0: r<0.55?1: r<0.75?3: r<0.88?5:4;
   else if((cat===1||cat===4||cat===5||cat===6||cat===7) && h>11) style = r<0.5?4:0;
-  else style = r<0.58?0: r<0.75?1: r<0.85?5: r<0.92?3: r<0.96?2:6;
+  else style = r<0.44?0: r<0.72?1: r<0.82?5: r<0.9?3: r<0.96?2:6;   // a third of Kathmandu houses show bare brick
   let col;
   if(cat===2) col=toLin(176,96,72); else if(cat===9) col=toLin(244,242,236); else if(cat===8) col=toLin(170,150,128);
   else if(style===1||style===2){ const k=0.86+r2*0.22; col=[k,k*(0.96+r2*0.06),k*(0.94+r2*0.08)]; }
@@ -4311,11 +4321,11 @@ function buildTile(t, detailed){
   for(const m of out.meshes){ gpuOnly(m.geometry); tileGroup.add(m); }
   return out;
 }
-function buildTrees(t, T){
+function buildTrees(t, T, far){
   const ox=X0+(t%NT)*TILE, oz=Z0+Math.floor(t/NT)*TILE; const r=rng(t*7919+13); const pts=[];
-  const cap=MOBILE?240:600;
+  const cap=Math.round((far?(MOBILE?200:420):(MOBILE?240:600))*Math.min(1.5,QUAL));
   for(let k=0;k<cap*3 && pts.length<cap;k++){ const x=ox+r()*TILE, z=oz+r()*TILE; const c=lcAt(x,z);
-    const p = c===1?0.9 : c===9?0.25 : c===7?0.12 : c===2?0.1 : c===3?0.03 : c===0?0.04 : c===4?0.03 : 0;
+    const p = c===1?0.9 : c===9?0.25 : c===7?0.4 : c===2?0.2 : c===3?0.06 : c===0?0.08 : c===4?0.16 : c===5||c===6?0.05 : 0;
     if(r()>p) continue; if(inBoudha(x,z) || onAirfield(x,z) || (SWC && Math.hypot(x-SWC[0],z-SWC[1])<46)) continue;
     if(!T.occ) T.occ=tileOcc(t); const a=Math.floor((x-ox)/5), b=Math.floor((z-oz)/5); if(T.occ[b*96+a]) continue;
     if(!T.rg) T.rg=tileRoadGrid(t); if(T.rg[b*96+a]) continue;
@@ -4323,6 +4333,10 @@ function buildTrees(t, T){
     pts.push([x,z,0.75+r()*0.7, r(), pine, y]); }
   if(!pts.length) return null;
   const out=[]; const d=new THREE.Object3D(), col=new THREE.Color();
+  if(far){ for(const pine of [false,true]){ const L=pts.filter(p=>p[4]===pine); if(!L.length) continue; const m=new THREE.InstancedMesh(pine?farPine:farBlob, farLeafMat, L.length);
+      L.forEach((p,i)=>{ d.position.set(p[0], p[5]-0.15, p[1]); d.rotation.set(0,p[3]*6.28,0); d.scale.setScalar(p[2]*1.25); d.updateMatrix(); m.setMatrixAt(i,d.matrix);
+        const c=TREE_COLS[(p[3]*50|0)%TREE_COLS.length]; col.setRGB(c[0]*2.3,c[1]*2.3,c[2]*1.9); if(pine) col.multiplyScalar(0.75); m.setColorAt(i,col); });
+      m.computeBoundingSphere(); tileGroup.add(m); out.push(m); } return out; }
   for(const pine of [false,true]){ const L=pts.filter(p=>p[4]===pine); if(!L.length) continue;
     const tr=new THREE.InstancedMesh(pine?pineTrunk:trunkGeo, trunkMat, L.length), lf=new THREE.InstancedMesh(pine?pineGeo:leafGeo, leafMat, L.length);
     L.forEach((p,i)=>{ d.position.set(p[0], p[5]-0.15, p[1]); d.rotation.set(0,p[3]*6.28,0); d.scale.setScalar(p[2]); d.updateMatrix(); tr.setMatrixAt(i,d.matrix); lf.setMatrixAt(i,d.matrix);
@@ -4819,6 +4833,12 @@ function wantedTiles(x,z,R,fx,fz){ const out=[]; const tx=Math.floor((x-X0)/TILE
     out.push([b*NT+a, d, d*(1.35-0.55*front)]); }
   out.sort((p,q)=>p[2]-q[2]); return out; }
 const STATS={tile:0,nt:0,far:0,nf:0,near:0,nn:0,tree:0,ntr:0};
+// adaptive quality: a phone or laptop that holds ~60 fps gets a wider streaming radius (buildings, roads, trees appear farther out);
+// one that struggles drops back. Starts at 1 (the tuned phone / desktop budgets) and moves in small steps every 2.5 s.
+let QUAL=1, qAcc=0, qN=0, qWarm=0;
+function adaptQuality(dt){ if(!(dt>0) || dt>0.25) return; qWarm+=dt; if(qWarm<6) return; qAcc+=dt; qN++; if(qAcc<2.5) return;
+  const avg=qAcc/qN; qAcc=0; qN=0; const max=MOBILE?1.9:1.7;
+  if(avg<1/52) QUAL=Math.min(max,QUAL+0.1); else if(avg>1/36) QUAL=Math.max(0.7,QUAL-0.15); STATS.qual=QUAL; }
 const _pv={x:0,z:0,t:0}; let vx_=0, vz_=0;
 function stream(x,z,camY,budget){
   // look-ahead: when moving fast, stream around where you will be in ~4 s
@@ -4828,8 +4848,8 @@ function stream(x,z,camY,budget){
   camera.getWorldDirection(_fwd); let fx=_fwd.x, fz=_fwd.z; const fl=Math.hypot(fx,fz)||1; fx/=fl; fz/=fl;
   const agl=Math.max(0,camY-gy(x,z)), flying = mode==='drive' && (DRV.type==='heli'||DRV.type==='plane');
   const base = mode==='drive' ? (flying? (MOBILE?800:1600) : (MOBILE?700:1300)) : (MOBILE?600:1100);
-  const R=Math.min(MOBILE?1700:4200, base + agl*(MOBILE?1.5:3.2)); tileR=R;
-  const treeR=MOBILE?600:900, NEAR_R=MOBILE?420:700, ROAD_R=MOBILE?650:1100;
+  const R=Math.min((MOBILE?1700:4200)*QUAL, (base + agl*(MOBILE?1.5:3.2))*QUAL); tileR=R;
+  const treeR=(MOBILE?600:900)*Math.min(QUAL,1.4), NEAR_R=(MOBILE?420:700)*Math.min(QUAL,1.3), ROAD_R=(MOBILE?650:1100)*QUAL, farTreeR=Math.min(R,(MOBILE?1300:2400)*QUAL);
   if(Math.hypot(ax-lastCX,az-lastCZ)>40 || Math.abs(R-(stream.lastR||0))>150 || (stream.fdot=(stream.fx||0)*fx+(stream.fz||0)*fz)<0.9){ lastCX=ax; lastCZ=az; stream.lastR=R; stream.fx=fx; stream.fz=fz; queue=wantedTiles(ax,az,R,fx,fz);
     const keep=new Set(wantedTiles(x,z,R*1.2+TILE).map(p=>p[0])); for(const q of queue) keep.add(q[0]); for(const [t,T] of TILES){ if(!keep.has(t)){ disposeTile(T); TILES.delete(t); } } }
   const t0=performance.now(), B=flying?budget*1.6:budget;
@@ -4843,9 +4863,10 @@ function stream(x,z,camY,budget){
     if(wantR!==T.detailed){ for(const m of T.meshes){ tileGroup.remove(m); m.geometry.dispose(); } const N=buildTile(t,wantR); T.meshes=N.meshes; T.detailed=N.detailed; }
     const want = (d<NEAR_R || (T.lod===1 && d<NEAR_R*1.3)) ? 1 : 0;
     if(T.lod!==want){ const q0=performance.now(); dropBld(T); T.bld=buildBld(t,want); T.lod=want; STATS[want?'near':'far']+=performance.now()-q0; STATS[want?'nn':'nf']++; }
-    if(d<treeR && !T.trees && !T.noTrees && !flying){ const q0=performance.now(); T.trees=buildTrees(t,T); if(!T.trees) T.noTrees=true; STATS.tree+=performance.now()-q0; STATS.ntr++; }
-    if(d<treeR && !T.trees && !T.noTrees && flying && agl<120){ T.trees=buildTrees(t,T); if(!T.trees) T.noTrees=true; }
-    if(d>treeR*1.3 && T.trees){ for(const m of T.trees){ tileGroup.remove(m); m.dispose(); } T.trees=null; T.noTrees=false; } }
+    const cur=T.treeLvl||0; let wt = (d<treeR && (!flying||agl<120)) ? 2 : (d<farTreeR ? 1 : 0);
+    if(cur===2 && wt<2 && d<treeR*1.3 && (!flying||agl<140)) wt=2; else if(cur===1 && wt===0 && d<farTreeR*1.2) wt=1;
+    if(wt!==cur && !T.noTrees){ const q0=performance.now(); if(T.trees){ for(const m of T.trees){ tileGroup.remove(m); m.dispose(); } T.trees=null; }
+      if(wt){ T.trees=buildTrees(t,T,wt===1); if(!T.trees) T.noTrees=true; } T.treeLvl=wt; STATS.tree+=performance.now()-q0; STATS.ntr++; } }
 }
 const _fwd=new THREE.Vector3();
 
@@ -4887,7 +4908,7 @@ function svUpdate(dt){ svT-=dt; if(svT>0||!svA) return; svT=1.0;
 function update(dt){
   const cx=camera.position.x, cz=camera.position.z, cy=camera.position.y;
   terrainUpdate(cx,cz);
-  stream(cx,cz,cy, firstStream? 400 : (MOBILE?5:8)); firstStream=false;
+  adaptQuality(dt); stream(cx,cz,cy, firstStream? 400 : (MOBILE?5:8)*Math.min(1.6,QUAL)); firstStream=false;
   sky.position.copy(camera.position);
   riverN.offset.x-=dt*0.045; riverN.offset.y+=dt*0.006;
   stars.position.copy(camera.position);                            // night sky + aurora travel with you (they were a 1.3 km dome over Boudha)
