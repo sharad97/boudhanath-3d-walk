@@ -3296,8 +3296,8 @@ function makeMoto(){
   const glow=[glowSprite(0xfff1c8,1.1)]; glow[0].position.set(0,0.9,-0.22); fork.add(glow[0]);
   const fw=wheelMesh(0.31,0.11,true); fw.position.set(0,0.31,-0.13); fork.add(fw);
   const rw=wheelMesh(0.31,0.13,true); rw.position.set(0,0.31,0.66); g.add(rw);
-  const rider=riderMesh(true); rider.g.position.set(0,0.88,0.22); rider.g.rotation.x=-0.18; g.add(rider.g);
-  rider.arms.forEach(a=>{ a.rotation.x=-1.2; }); rider.thighs.forEach(t=>{ t.rotation.x=-1.25; t.rotation.z=0; }); rider.shins.forEach(s=>s.rotation.x=1.35);
+  const rider=riderMesh(true); rider.g.position.set(0,0.88,0.22); rider.g.rotation.x=-0.3; g.add(rider.g);   // leaning into the bars
+  rider.arms.forEach(a=>{ a.rotation.x=1.28; }); rider.thighs.forEach(t=>{ t.rotation.x=1.65; t.rotation.z=0; }); rider.shins.forEach(s=>s.rotation.x=-1.55);   // hands on the grips, feet on the pegs
   g.traverse(o=>{ if(o.isMesh){ o.castShadow=true; } });
   return {g, wheels:[fw,rw], steer:[fork], head, tail, glow, rider, wheelR:0.31};
 }
@@ -3316,8 +3316,8 @@ function makeBike(){
   crank.add(new THREE.Mesh(mergeVC([box(0.03,0.34,0.03,0.07,0,0,[0.3,0.3,0.3]), box(0.03,0.34,0.03,-0.07,0,0,[0.3,0.3,0.3]), [new THREE.CylinderGeometry(0.09,0.09,0.02,14).rotateZ(Math.PI/2).translate(0.05,0,0),[0.5,0.5,0.5]]]), new THREE.MeshStandardMaterial({vertexColors:true, metalness:0.6, roughness:0.4})));
   const head=lightMat(0xfff3d6), tail=lightMat(0xff2a1a);
   const tl=new THREE.Mesh(new THREE.BoxGeometry(0.05,0.04,0.02), tail); tl.position.set(0,0.82,0.36); g.add(tl);
-  const glow=[]; const rider=riderMesh(false); rider.g.position.set(0,0.96,0.2); rider.g.rotation.x=-0.25; g.add(rider.g);
-  rider.arms.forEach(a=>a.rotation.x=-1.25);
+  const glow=[]; const rider=riderMesh(false); rider.g.position.set(0,0.96,0.2); rider.g.rotation.x=-0.35; g.add(rider.g);
+  rider.arms.forEach(a=>a.rotation.x=1.04); rider.thighs.forEach(t=>t.rotation.x=1.15); rider.shins.forEach(s=>s.rotation.x=-1.25);
   g.traverse(o=>{ if(o.isMesh) o.castShadow=true; });
   return {g, wheels:[fw,rw], steer:[fork], head, tail, glow, rider, crank, wheelR:0.34};
 }
@@ -3779,7 +3779,7 @@ updateDrive = function(dt, t){
   const gY=VAL.gy(DRV.x,DRV.z), ffx=-Math.sin(DRV.yaw), ffz=-Math.cos(DRV.yaw), slope=Math.atan2(VAL.gy(DRV.x+ffx*1.5,DRV.z+ffz*1.5)-VAL.gy(DRV.x-ffx*1.5,DRV.z-ffz*1.5),3);
   m.g.position.set(DRV.x, gY+0.04, DRV.z); m.g.rotation.set(slope+(DRV.type==='car'?-Math.max(-0.03,Math.min(0.03,(thr-brk)*0.02)):0), DRV.yaw, DRV.type==='car'?-DRV.steer*Math.min(1,Math.abs(v)/10)*0.05:roll, 'YXZ');
   DRV.spin+=v*dt/m.wheelR; for(const w of m.wheels) w.rotation.x=-DRV.spin; for(const s of m.steer) s.rotation.y=-DRV.steer*(DRV.type==='car'?1:0.8);
-  if(m.crank){ m.crank.rotation.x=-DRV.spin*0.45; const ph=DRV.spin*0.45; m.rider.thighs.forEach((th,i)=>{ const p=ph+i*Math.PI; th.rotation.x=-1.15+0.32*Math.sin(p); m.rider.shins[i].rotation.x=1.2-0.3*Math.sin(p+0.8); }); }
+  if(m.crank){ m.crank.rotation.x=-DRV.spin*0.45; const ph=DRV.spin*0.45; m.rider.thighs.forEach((th,i)=>{ const p=ph+i*Math.PI; th.rotation.x=1.15-0.32*Math.sin(p); m.rider.shins[i].rotation.x=-1.25+0.3*Math.sin(p+0.8); }); }
   if(m.rider) m.rider.g.visible=!DRV.fp;
   // lights: headlights at night, brake lights when braking
   const L=LIGHTS.value; m.head.emissiveIntensity=0.15+L*3; m.tail.emissiveIntensity=(brk>0.05||keys['Space'])?2.6:0.25+L*0.9; for(const s of m.glow) s.material.opacity=L*0.75;
