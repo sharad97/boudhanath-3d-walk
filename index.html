@@ -3442,7 +3442,7 @@ function heliSpawn(){
       const g=VAL.gy(x,z); if(heliClear(x,z,player.yaw)-g<=0.05 && Math.abs(VAL.gy(x+4,z)-g)<0.8 && Math.abs(VAL.gy(x,z+4)-g)<0.8) return {x,z,yaw:player.yaw,alt:g}; } }
   return {x:player.x, z:player.z, yaw:player.yaw, alt:heliClear(player.x,player.z,player.yaw)+40};
 }
-const FLY={up:false, down:false};
+const FLY={up:false, down:false, turbo:false};
 
 /* ---------- UI ---------- */
 const css=document.createElement('style');
@@ -3456,7 +3456,10 @@ button,a,.act,.simT{touch-action:manipulation;}
 #driveGrid{display:grid;grid-template-columns:repeat(5,1fr);gap:5px;}
 #driveGrid .simT{font-size:10px;}
 #flyBtns{position:fixed;left:calc(16px + env(safe-area-inset-left));bottom:calc(16px + env(safe-area-inset-bottom));z-index:6;display:none;flex-direction:column;gap:8px;}
-body.flying #flyBtns{display:flex;}
+body.flying #flyBtns{display:grid;grid-template-columns:56px 56px;grid-auto-rows:56px;}
+#flyBtns #flyTurbo{grid-column:2;grid-row:1;}
+#flyBtns #flyTurbo.on{background:linear-gradient(180deg,#e8a530,#b5561c);border-color:#ffd27a;color:#2a1606;box-shadow:0 0 18px rgba(255,170,60,.6);}
+#flyBtns #flyTurbo svg{width:26px;height:26px;}
 #flyBtns button{width:56px;height:56px;border-radius:50%;border:1px solid var(--panel-line);background:rgba(38,26,16,.82);color:#ffe9c4;display:flex;align-items:center;justify-content:center;padding:0;touch-action:none;-webkit-user-select:none;user-select:none;box-shadow:0 6px 18px rgba(0,0,0,.35);}
 #flyBtns button svg{width:24px;height:24px;}
 #flyBtns button.held{background:var(--maroon);border-color:#d98a4a;}
@@ -3517,12 +3520,18 @@ panel.innerHTML='<h2>Ride around the valley <small class="k">F get in / out</sma
   '<p class="k">W / ↑ go · S / ↓ brake &amp; reverse · A D steer · Space handbrake · Shift boost · H horn · V camera · drag to look · scroll to zoom</p>'+
   '<p class="k">Helicopter: W / S forward &amp; back · A D turn · Space climb · C descend · Shift fast</p>'+
   '<p class="k">Airplane (starts at Tribhuvan, runway 02): Space / C throttle · W / S nose up &amp; down (S brakes on the ground) · A D bank · Shift full power</p>'+
-  '<p>On a phone: push the gold joystick up to go, down to brake, sideways to steer. In the helicopter use ▲ ▼ to climb and descend; in the airplane ▲ ▼ are the throttle, push the joystick up to climb.</p>';
+  '<p>On a phone: push the gold joystick up to go, down to brake, sideways to steer. In the helicopter use ▲ ▼ to climb and descend; in the airplane ▲ ▼ are the throttle, push the joystick up to climb. ⏩ is turbo for both.</p>';
 document.body.appendChild(panel);
 const speedo=document.createElement('div'); speedo.id='speedo'; document.body.appendChild(speedo);
 const flyBtns=document.createElement('div'); flyBtns.id='flyBtns';
 flyBtns.innerHTML='<button id="flyUp" aria-label="Climb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg></button><button id="flyDown" aria-label="Descend"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>';
 document.body.appendChild(flyBtns);
+{ const tb=document.createElement('button'); tb.id='flyTurbo'; tb.setAttribute('aria-label','Turbo'); tb.setAttribute('aria-pressed','false'); tb.title='Turbo (T)';
+  tb.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6l7 6-7 6zM12 6l7 6-7 6z"/></svg>';
+  flyBtns.insertBefore(tb, document.getElementById('flyDown'));
+  tb.addEventListener('pointerdown', e=>{ e.preventDefault(); audioUnlock(); setTurbo(!FLY.turbo); }); }
+function setTurbo(on, quiet){ FLY.turbo=!!on; const tb=document.getElementById('flyTurbo'); if(tb){ tb.classList.toggle('on',FLY.turbo); tb.setAttribute('aria-pressed',FLY.turbo?'true':'false'); }
+  if(!quiet && DRV.driving) showToast(FLY.turbo ? (DRV.type==='plane'?'Turbo on: full power, up to ~580 km/h':'Turbo on: up to ~340 km/h') : 'Turbo off'); }
 for(const [id,key] of [['flyUp','up'],['flyDown','down']]){ const b=document.getElementById(id);
   const on=e=>{ e.preventDefault(); FLY[key]=true; b.classList.add('held'); try{ b.setPointerCapture(e.pointerId); }catch(_){} audioUnlock(); };
   const off=()=>{ FLY[key]=false; b.classList.remove('held'); };
@@ -3543,6 +3552,7 @@ addEventListener('keydown', e=>{
   if(e.code==='KeyF'){ if(DRV.driving) driveExit(false); else if(mode==='walk'){ let best=null, bd=36; for(const k in DRV.parked){ const p=DRV.parked[k]; if(!p) continue; const d=(p.x-player.x)**2+(p.z-player.z)**2; if(d<bd){ bd=d; best=k; } } audioUnlock(); driveEnter(best||DRV.type); } }
   else if(DRV.driving && e.code==='KeyH') horn();
   else if(DRV.driving && e.code==='KeyV'){ DRV.fp=!DRV.fp; }
+  else if(DRV.driving && e.code==='KeyT' && (DRV.type==='heli'||DRV.type==='plane')) setTurbo(!FLY.turbo);
 });
 
 /* ---------- get in / out ---------- */
@@ -3560,8 +3570,8 @@ driveEnter = function(type){
   mode='drive'; player.x=DRV.x; player.z=DRV.z; player.yaw=DRV.yaw;
   ['btnTour','btnOrbit','btnSV'].forEach(id=>document.getElementById(id).setAttribute('aria-pressed','false')); document.getElementById('svBar').classList.remove('on');
   hintEl.innerHTML='W / ↑ go &nbsp;·&nbsp; S brake &nbsp;·&nbsp; A D steer &nbsp;·&nbsp; Space handbrake &nbsp;·&nbsp; H horn &nbsp;·&nbsp; V camera &nbsp;·&nbsp; F get out';
-  if(type==='heli') hintEl.innerHTML='W S fly &nbsp;·&nbsp; A D turn &nbsp;·&nbsp; Space up &nbsp;·&nbsp; C down &nbsp;·&nbsp; Shift fast &nbsp;·&nbsp; F out';
-  if(type==='plane') hintEl.innerHTML='Space / ▲ throttle up &nbsp;·&nbsp; C / ▼ down &nbsp;·&nbsp; W climb &nbsp;·&nbsp; S dive / brake &nbsp;·&nbsp; A D bank &nbsp;·&nbsp; V camera';
+  if(type==='heli') hintEl.innerHTML='W S fly &nbsp;·&nbsp; A D turn &nbsp;·&nbsp; Space up &nbsp;·&nbsp; C down &nbsp;·&nbsp; T / ⏩ turbo &nbsp;·&nbsp; F out';
+  if(type==='plane') hintEl.innerHTML='Space / ▲ throttle up &nbsp;·&nbsp; C / ▼ down &nbsp;·&nbsp; W climb &nbsp;·&nbsp; S dive / brake &nbsp;·&nbsp; A D bank &nbsp;·&nbsp; T / ⏩ turbo &nbsp;·&nbsp; V camera';
   if(matchMedia('(pointer:coarse)').matches){ panel.hidden=true; }
   speedo.style.display='block'; syncUI();
   if(type==='heli'){ showToast(near?'Back in the helicopter':'Rotor spinning up… then hold ▲ (or Space) to take off'); return; }
@@ -3579,7 +3589,7 @@ driveExit = function(fromSetMode, silent){
       if(g-VAL.gy(DRV.x,DRV.z)>0.5){ showToast('You are on a roof. Land on the ground to get out'); return; } }
     DRV.alt=g; m.g.position.y=g; DRV.vx=DRV.vz=DRV.vy=0; FLY.up=FLY.down=false;
   }
-  document.body.classList.remove('flying');
+  document.body.classList.remove('flying'); setTurbo(false, true);
   DRV.driving=false; DRV.v=0; DRV.parked[DRV.type]={x:DRV.x, z:DRV.z, yaw:DRV.yaw, alt:DRV.type==='heli'?DRV.alt:0};
   if(m.rider) m.rider.g.visible=false;
   // step out on the driver's side (right-hand drive, Nepal keeps left) or wherever is free
@@ -3625,15 +3635,15 @@ function updateHeli(dt, t){
   const fwdIn=cl(((keys['KeyW']||keys['ArrowUp'])?1:0)-((keys['KeyS']||keys['ArrowDown'])?1:0)-joyVec.y);
   const turnIn=cl(((keys['KeyD']||keys['ArrowRight'])?1:0)-((keys['KeyA']||keys['ArrowLeft'])?1:0)+joyVec.x);
   const climb=cl(((keys['Space']||keys['KeyE']||FLY.up)?1:0)-((keys['KeyC']||keys['KeyQ']||FLY.down)?1:0));
-  const boost=!!(keys['ShiftLeft']||keys['ShiftRight']);
+  const boost=!!(keys['ShiftLeft']||keys['ShiftRight']||FLY.turbo);
   H.rotor+=(1-H.rotor)*Math.min(1,dt*0.75);
   const power=H.rotor>0.82;
   const gNow=heliClear(H.x,H.z,H.yaw), onGround=H.alt<=gNow+0.06;
   H.yawRate+=((-turnIn*(onGround?0.45:1.15))-H.yawRate)*Math.min(1,dt*3); if(H.rotor>0.4) H.yaw+=H.yawRate*dt;
-  const fx=-Math.sin(H.yaw), fz=-Math.cos(H.yaw), maxS=boost?60:34;
-  if(!onGround && power){ H.vx+=(fx*fwdIn*maxS-H.vx)*Math.min(1,dt*0.6); H.vz+=(fz*fwdIn*maxS-H.vz)*Math.min(1,dt*0.6); }
+  const fx=-Math.sin(H.yaw), fz=-Math.cos(H.yaw), maxS=boost?95:34;
+  if(!onGround && power){ const ka=Math.min(1,dt*(boost?0.85:0.6)); H.vx+=(fx*fwdIn*maxS-H.vx)*ka; H.vz+=(fz*fwdIn*maxS-H.vz)*ka; }
   else { const k=Math.exp(-dt*6); H.vx*=k; H.vz*=k; }
-  let tvy = power ? climb*(boost?11:7) : (onGround?0:-3);
+  let tvy = power ? climb*(boost?18:7) : (onGround?0:-3);
   if(!power && climb>0 && onGround && !H.spoolTold){ H.spoolTold=true; showToast('Rotor still spinning up…'); }
   H.vy+=(tvy-H.vy)*Math.min(1,dt*2.2);
   let nx=H.x+H.vx*dt, nz=H.z+H.vz*dt, ny=Math.min(4600-VAL.E0-VAL.DATUM, H.alt+H.vy*dt);      // ceiling ~4,600 m above sea level
@@ -3671,7 +3681,7 @@ function updateHeli(dt, t){
     camera.position.copy(DRV.cam); _l.set(H.x+cfx*4, H.alt+1.6, H.z+cfz*4); camera.lookAt(_l);
   }
   const shk=DRV.shake*0.15; camera.position.x+=(Math.random()-0.5)*shk+CAMFX.x; camera.position.y+=(Math.random()-0.5)*shk+CAMFX.y; camera.position.z+=(Math.random()-0.5)*shk+CAMFX.z;
-  speedo.innerHTML=Math.round(sp*3.6)+' km/h · '+Math.max(0,Math.round(agl))+' m<small>Helicopter · '+Math.round(H.alt+VAL.E0+VAL.DATUM).toLocaleString('en')+' m above sea level'+(H.rotor<0.82?' · spinning up':'')+'</small>';
+  speedo.innerHTML=Math.round(sp*3.6)+' km/h · '+Math.max(0,Math.round(agl))+' m<small>Helicopter · '+(boost?'TURBO · ':'')+Math.round(H.alt+VAL.E0+VAL.DATUM).toLocaleString('en')+' m above sea level'+(H.rotor<0.82?' · spinning up':'')+'</small>';
   sndUpdate(dt, Math.abs(climb)*0.5+Math.abs(fwdIn)*0.5);
 }
 
@@ -3681,12 +3691,13 @@ function updatePlane(dt, t){
   const pitchIn=cl(((keys['KeyW']||keys['ArrowUp'])?1:0)-((keys['KeyS']||keys['ArrowDown'])?1:0)-joyVec.y);
   const rollIn=cl(((keys['KeyD']||keys['ArrowRight'])?1:0)-((keys['KeyA']||keys['ArrowLeft'])?1:0)+joyVec.x);
   const thrIn=cl(((keys['Space']||keys['KeyE']||FLY.up)?1:0)-((keys['KeyC']||keys['KeyQ']||FLY.down)?1:0));
-  if(keys['ShiftLeft']||keys['ShiftRight']) P.thr=1; else P.thr=Math.max(0,Math.min(1,P.thr+thrIn*dt*0.5));
+  const turbo=!!(keys['ShiftLeft']||keys['ShiftRight']||FLY.turbo); if(turbo) P.thr=1; else P.thr=Math.max(0,Math.min(1,P.thr+thrIn*dt*0.5));
+  const TH=turbo?10.9:4.2, DR=turbo?0.00042:0.00055;   // turbo: more than double the thrust, top speed ~580 km/h
   P.prop+=(Math.max(0.18,P.thr)-P.prop)*Math.min(1,dt*1.2);
   const STALL=40, VR=50; let nx=P.x, nz=P.z;
   if(!P.air){
     P.roll+=(0-P.roll)*Math.min(1,dt*4);
-    let acc=P.thr*4.0-0.00055*P.v*P.v-(P.v>0.1?0.25:0); if(pitchIn<-0.3 && P.v>0) acc-=7*(-pitchIn);
+    let acc=P.thr*(turbo?9.5:4.0)-DR*P.v*P.v-(P.v>0.1?0.25:0); if(pitchIn<-0.3 && P.v>0) acc-=7*(-pitchIn);
     P.v=Math.max(0,P.v+acc*dt); if(P.v<0.08 && P.thr<0.02) P.v=0;
     P.yaw+=-rollIn*Math.min(1,P.v/6)*(P.v<25?0.5:0.12)*dt;
     const pt=(P.v>VR && pitchIn>0.2)?0.16:0; P.pitch+=(pt-P.pitch)*Math.min(1,dt*1.5);
@@ -3700,7 +3711,7 @@ function updatePlane(dt, t){
     let pt=pitchIn*0.28; if(P.v<STALL) pt=Math.min(pt,-0.14*(1-P.v/STALL)-0.03);
     P.pitch+=(pt-P.pitch)*Math.min(1,dt*1.4);
     P.yaw-=9.8*Math.tan(P.roll)/Math.max(P.v,25)*dt;
-    P.v=Math.max(0, P.v+(P.thr*4.2-0.00055*P.v*P.v-9.8*Math.sin(P.pitch)*0.9)*dt);
+    P.v=Math.max(0, P.v+(P.thr*TH-DR*P.v*P.v-9.8*Math.sin(P.pitch)*0.9)*dt);
     const sink=P.v<STALL?(STALL-P.v)*0.35:0, vh=P.v*Math.cos(P.pitch), vy=P.v*Math.sin(P.pitch)-sink; P.vy=vy;
     nx=P.x-Math.sin(P.yaw)*vh*dt; nz=P.z-Math.cos(P.yaw)*vh*dt; let na=Math.min(6000-VAL.E0-VAL.DATUM, P.alt+vy*dt);
     { const ex=nx-VAL.CX, ez=nz-VAL.CZ, r=Math.hypot(ex,ez), R=VAL.RAD-300; if(r>R){ const want=Math.atan2(ex,ez); let dy=want-P.yaw; while(dy>Math.PI)dy-=6.283; while(dy<-Math.PI)dy+=6.283; P.yaw+=Math.sign(dy)*dt*0.6; if(!P.edgeTold){ P.edgeTold=true; showToast('Edge of the 30 km circle, turning back'); } } else if(r<R-800) P.edgeTold=false; }
@@ -3731,7 +3742,7 @@ function updatePlane(dt, t){
     camera.position.copy(DRV.cam); _l.set(P.x+cfx*12, P.alt+3, P.z+cfz*12); camera.lookAt(_l); }
   const shk=DRV.shake*0.2; camera.position.x+=(Math.random()-0.5)*shk+CAMFX.x; camera.position.y+=(Math.random()-0.5)*shk+CAMFX.y; camera.position.z+=(Math.random()-0.5)*shk+CAMFX.z;
   const agl=Math.max(0,Math.round(P.alt-planeGround(P.x,P.z)));
-  speedo.innerHTML=Math.round(P.v*3.6)+' km/h · '+agl+' m<small>Airplane · throttle '+Math.round(P.thr*100)+'% · '+Math.round(P.alt+VAL.E0+VAL.DATUM).toLocaleString('en')+' m above sea level'+(P.air&&P.v<STALL?' · STALL':'')+'</small>';
+  speedo.innerHTML=Math.round(P.v*3.6)+' km/h · '+agl+' m<small>Airplane · '+(turbo?'TURBO':'throttle '+Math.round(P.thr*100)+'%')+' · '+Math.round(P.alt+VAL.E0+VAL.DATUM).toLocaleString('en')+' m above sea level'+(P.air&&P.v<STALL?' · STALL':'')+'</small>';
   sndUpdate(dt, P.thr);
 }
 updateDrive = function(dt, t){
