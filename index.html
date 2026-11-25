@@ -2095,10 +2095,11 @@ function poseAll(t, dt, camX, camZ){
     if(p.sit){ part(PM.leg,i*2, 0.09,hipY,0.02, -1.35,0,0, 1,1,1); part(PM.leg,i*2+1, -0.09,hipY,0.02, -1.35,0,0, 1,1,1); }
     else { part(PM.leg,i*2, 0.09,hipY,0, sw*0.46,0,0, 1,1,1); part(PM.leg,i*2+1, -0.09,hipY,0, -sw*0.46,0,0, 1,1,1); }
     // arms: left swings; right swings, or reaches out to the prayer wheels, or holds a hand wheel
-    part(PM.arm,i*2, 0.205,hipY+0.56,0, p.sit?-0.55:-sw*0.34, 0, 0.06, 1,1,1);
+    if(p.fight && !p.fight.homing){ const s2=p.fight.swing||0, L=p.fight.hand===0; part(PM.arm,i*2, 0.205,hipY+0.56,0, L?-1.1-0.5*s2:-1.15, 0, L?-0.05:-0.38, 1,1,1); part(PM.arm,i*2+1, -0.205,hipY+0.56,0, !L?-1.1-0.5*s2:-1.15, 0, !L?0.05:0.38, 1,1,1); }   // fists up, one jabs
+    else { part(PM.arm,i*2, 0.205,hipY+0.56,0, p.sit?-0.55:-sw*0.34, 0, 0.06, 1,1,1);
     if(p.touching) part(PM.arm,i*2+1, -0.205,hipY+0.56,0, -0.55,0,-0.62, 1,1,1);
     else if(p.mani) part(PM.arm,i*2+1, -0.205,hipY+0.56,0, -0.95,0,-0.08, 1,1,1);
-    else part(PM.arm,i*2+1, -0.205,hipY+0.56,0, p.sit?-0.55:sw*0.34, 0, -0.06, 1,1,1);
+    else part(PM.arm,i*2+1, -0.205,hipY+0.56,0, p.sit?-0.55:sw*0.34, 0, -0.06, 1,1,1); }
     if(p.mani){ p.maniA=(p.maniA||0)+dt*7; part(PM.mani,i, -0.215,hipY+0.39,0.42, 0.25*Math.sin(t*3+i),p.maniA,0.15, 1,1,1); } else PM.mani.setMatrixAt(i,ZERO);
     if(p.skirt){ const sy=p.sit?0.55:1; part(PM.skirt,i, 0,p.sit?0.3:0.47,0, 0,0,sw*0.03, 1,sy,1); if(p.apron) part(PM.apron,i, 0,p.sit?0.3:0.49,0.0, 0,0,0, 1,p.sit?0.55:1,1); else PM.apron.setMatrixAt(i,ZERO); }
     else { PM.skirt.setMatrixAt(i,ZERO); PM.apron.setMatrixAt(i,ZERO); }
@@ -2172,14 +2173,16 @@ function updateDogs(dt, t){
 let frameNo=0;
 /* knocked down (punch / kick: gets up after a few seconds and runs) or shot (stays down ~45 s, then back in the crowd). No gore: they just fall. */
 function downTick(p,dt){ const D=p.down; D.t+=dt;
+  if(D.dead) p.fight=null;
   if(D.t<D.dur || D.dead){ D.f=Math.min(1,D.f+dt*3.4); if(D.dead && D.t>45){ p.down=null; if(p.wasSit){ p.sit=true; p.wasSit=false; } } return true; }
-  D.f-=dt*1.8; if(D.f<=0){ p.down=null; if(p.wasSit){ p.sit=true; p.wasSit=false; } p.flee=7; return false; } return true; }
+  D.f-=dt*1.8; if(D.f<=0){ p.down=null; if(p.fight && p.fight.hp>0){ p.flee=0; p.fight.cool=0.6; return false; } p.fight=null; if(p.wasSit){ p.sit=true; p.wasSit=false; } p.flee=7; return false; } return true; }   // a fighter gets up and comes back at you
 function knockDown(p, dead, fromX, fromZ){ if(p.down && p.down.dead) return false; if(p.sit){ p.wasSit=true; p.sit=false; }
   const away=Math.atan2(p.x-fromX, p.z-fromZ), rel=Math.sin(away-p.yaw), fwd=Math.cos(away-p.yaw);   // fall away from the hit
   p.down={t:0, f:p.down?p.down.f:0, dur:dead?1e9:3.5+Math.random()*2.5, dead:!!dead, dir:fwd>=0?1:-1, roll:rel*0.3}; p.touching=false; return true; }
 function updatePeople(dt, t){
   for(const p of PEOPLE){
     if(p.down){ downTick(p,dt); continue; }
+    if(p.fight && fightTick(p,dt)) continue;
     if(p.sit || p.gone || p.liftY) continue;
     p.touching=false;
     if(p.flee>0){ p.flee-=dt; if(p.role==='path' && p.fleeFrom){ const ux=Math.sin(p.yaw), uz=Math.cos(p.yaw); if(((p.x-p.fleeFrom[0])*ux+(p.z-p.fleeFrom[1])*uz)*1<0) p.dir=-p.dir; p.fleeFrom=null; } }
@@ -2885,7 +2888,7 @@ function updateBooms(dt){ for(const B of BOOMS){ if(!B.on) continue; B.t+=dt; co
     const fr=s*(0.35+1.1*(1-Math.exp(-T*6))); B.f.position.set(B.x,B.y+T*s*0.25,B.z); B.f.scale.setScalar(fr); B.f.material.opacity=Math.max(0,1-T/0.9); B.f.material.color.setRGB(1.6,0.7+0.6*Math.exp(-T*3),0.25); B.f.visible=B.f.material.opacity>0.01;
     for(const m of B.sm){ const o=m.userData.o, k=Math.min(1,T/0.6); m.position.set(B.x+o[0]*k, B.y+o[1]+T*s*0.35*o[3], B.z+o[2]*k); m.scale.setScalar(s*(0.3+0.5*k+T*0.12)*o[3]); m.material.opacity=Math.min(0.8,T*3)*Math.max(0,1-T/7); m.visible=T>0.08 && m.material.opacity>0.01; }
     if(T>7){ B.on=false; B.f.visible=false; for(const m of B.sm) m.visible=false; } } }
-function restoreCity(quiet){ const n=VAL.restore(); clearDebris(); clearChunks(); reviveAll(); if(!quiet) showToast(n?'Rebuilt '+n.toLocaleString('en')+' buildings':'Nothing to rebuild'); return n; }
+function restoreCity(quiet){ const n=VAL.restore(); clearDebris(); clearChunks(); reviveAll(); FIGHT.hp=100; FIGHT.ko=0; if(!quiet) showToast(n?'Rebuilt '+n.toLocaleString('en')+' buildings':'Nothing to rebuild'); return n; }
 
 /* ---------------- ATOMIC BLAST: fireball, mushroom cloud, dust wall ---------------- */
 const BOMB={gz:new THREE.Vector3(), dist:560, dir:new THREE.Vector3(), built:false, list:[], li:0};   // close enough to watch the city go (was 1.9 km)
@@ -4149,6 +4152,7 @@ body.ui-hidden #speedo{right:auto;left:50%;transform:translateX(-50%);}`;
    ===================================================================== */
 const TP={on:false, yaw:0, act:null, actT:0, recoil:0, flash:0, hit:false};
 const GUN={on:false, cool:0};
+const FIGHT={hp:100, ko:0, hurt:0, lastHit:-99, t:0, n:0};   // your health; fighters who come back at you
 if(!camera.parent) scene.add(camera);   // lets the first-person pistol ride on the camera
 
 /* ---------- the character ---------- */
@@ -4214,7 +4218,7 @@ function footSync(){ const walk=mode==='walk'; document.body.classList.toggle('o
   const a=document.querySelector('.simT[data-veh="tp"]'), g=document.querySelector('.simT[data-veh="gun"]'); if(a) a.setAttribute('aria-pressed',TP.on?'true':'false'); if(g) g.setAttribute('aria-pressed',GUN.on?'true':'false'); }
 function toFoot(){ if(DRV.driving){ driveExit(false); if(DRV.driving) return false; } if(mode!=='walk') setMode('walk'); return true; }
 function setTP(on){ if(on && !toFoot()) return; TP.on=!!on; TP.yaw=player.yaw; camera.userData.tpYaw=null; footSync(); }
-function reviveAll(){ for(const p of PEOPLE.concat(VAL.vpeople)){ if(p.down){ p.down=null; if(p.wasSit){ p.sit=true; p.wasSit=false; } } p.flee=0; } }
+function reviveAll(){ for(const p of PEOPLE.concat(VAL.vpeople)){ p.fight=null; if(p.down){ p.down=null; if(p.wasSit){ p.sit=true; p.wasSit=false; } } p.flee=0; } }
 function setGun(on){ if(on && !toFoot()) return; GUN.on=!!on; footSync(); showToast(on?(MOBILE?'Handgun: aim with the crosshair, 🔫 to fire. 👊 🦶 to fight':'Handgun: Space or click to fire · J punch · K kick · V first / third person'):'Gun put away'); }
 addEventListener('keydown', e=>{ if(e.repeat || e.metaKey || e.ctrlKey || e.altKey || mode!=='walk') return;
   if(e.code==='KeyV'){ setTP(!TP.on); showToast(TP.on?'Third-person view: J punch · K kick':'First-person view'); }
@@ -4228,7 +4232,7 @@ function crowd(){ const out=[];
   for(const p of PEOPLE){ if(p.gone || p.liftY || p.role==='rider' || p.riderY) continue; out.push({p, x:p.x, z:p.z, y:GY(p.x,p.z), h:1.72*p.h}); }
   for(const p of VAL.vpeople){ if(p.gone || p.liftY || p.ri<0) continue; out.push({p, x:p.x, z:p.z, y:VAL.gy(p.x,p.z), h:1.75*p.h}); }
   return out; }
-function scatter(x,z,R,chance){ for(const c of crowd()){ const d=Math.hypot(c.x-x,c.z-z); if(d<R && !c.p.down && Math.random()<chance*(1-d/R*0.5)){ c.p.flee=6+Math.random()*6; c.p.fleeFrom=[x,z]; } } }
+function scatter(x,z,R,chance){ for(const c of crowd()){ const d=Math.hypot(c.x-x,c.z-z); if(c.p.fight && d<R && Math.random()<0.7){ endFight(c.p); c.p.flee=8; c.p.fleeFrom=[x,z]; continue; } if(d<R && !c.p.down && !c.p.fight && Math.random()<chance*(1-d/R*0.5)){ c.p.flee=6+Math.random()*6; c.p.fleeFrom=[x,z]; } } }
 function thud(gain,freq){ if(!AUD.on||!AUD.ctx) return; const t0=AUD.ctx.currentTime; noiseHit(t0,0.09,freq||260,'lowpass',gain); noiseHit(t0+0.01,0.05,1400,'bandpass',gain*0.35); }
 
 /* ---------- boxing ---------- */
@@ -4236,8 +4240,46 @@ function melee(kind){ if(mode!=='walk' || TP.act) return; if(!TP.on){ setTP(true
   TP.act=kind; TP.actT=0; TP.hit=false; TP.yaw=player.yaw; if(AUD.on&&AUD.ctx) noiseHit(AUD.ctx.currentTime,0.12,700,'bandpass',0.08); }
 function strikeHit(kind){ const fx=-Math.sin(TP.yaw), fz=-Math.cos(TP.yaw), reach=kind==='kick'?1.55:1.3; let best=null, bd=1e9;
   for(const c of crowd()){ if(c.p.down) continue; const dx=c.x-player.x, dz=c.z-player.z, d=Math.hypot(dx,dz); if(d>reach || d<0.05) continue; if((dx*fx+dz*fz)/d<0.45) continue; if(d<bd){ bd=d; best=c; } }
-  if(best){ knockDown(best.p, false, player.x, player.z); if(kind==='kick'){ best.p.x+=fx*0.6; best.p.z+=fz*0.6; } thud(kind==='kick'?0.55:0.4, kind==='kick'?200:280); scatter(player.x,player.z,14,0.6); }
+  if(best){ const p=best.p; knockDown(p, false, player.x, player.z); if(kind==='kick'){ p.x+=fx*0.6; p.z+=fz*0.6; } thud(kind==='kick'?0.55:0.4, kind==='kick'?200:280);
+    if(p.fight){ p.fight.hp--; if(p.fight.hp<=0){ p.fight=null; } }                                  // beaten: when they get up they run
+    else if(Math.random()<0.45 && fighters()<4) startFight(p);                                     // some get up angry
+    for(const c of crowd()){ if(c.p===p || c.p.down || c.p.fight) continue; const d=Math.hypot(c.x-player.x,c.z-player.z); if(d>14) continue;
+      if(Math.random()<0.22 && fighters()<4) startFight(c.p); else if(Math.random()<0.6*(1-d/21)){ c.p.flee=6+Math.random()*6; c.p.fleeFrom=[player.x,player.z]; } } }
   else thud(0.05,500); }
+
+/* ---------- people who fight back: they square up, close in and throw punches; knock them down enough times and they run ---------- */
+function fighters(){ let n=0; for(const c of crowd()) if(c.p.fight && !c.p.fight.homing) n++; return n; }
+function startFight(p){ p.fight={hp:1+Math.floor(Math.random()*3), cool:0.8+Math.random(), swing:0, hand:0, t:0, home:[p.x,p.z], homing:false, sp:2.6+Math.random()*1.4}; p.flee=0; }
+function endFight(p){ if(p.fight){ p.fight.homing=true; p.fight.swing=0; } }
+function footBlocked(x,z){ return (Math.abs(x)<=300&&Math.abs(z)<=300) ? !!buildingAt(x,z) : VAL.collides(x,z,0.3); }
+function fightTick(p, dt){ const F=p.fight; if(!F) return false;
+  const dx=player.x-p.x, dz=player.z-p.z, d=Math.hypot(dx,dz);
+  if(!F.homing && (mode!=='walk' || d>34 || F.t>60 || FIGHT.ko>0)) endFight(p);
+  let tx, tz, sp=0;
+  if(F.homing){ tx=F.home[0]; tz=F.home[1]; const hd=Math.hypot(tx-p.x,tz-p.z); if(hd<0.25){ p.x=tx; p.z=tz; p.fight=null; if(p.wasSit){ p.sit=true; p.wasSit=false; } return false; } sp=1.3; }
+  else { F.t+=dt; tx=player.x; tz=player.z; sp = d>1.0 ? F.sp : 0;
+    F.cool-=dt; if(F.swing>0) F.swing=Math.max(0,F.swing-dt*3.2);
+    if(d<1.35 && F.cool<=0){ F.cool=1.1+Math.random()*1.0; F.swing=1; F.hand=1-F.hand; F.t=0;               // a jab or a hook
+      if(AUD.on&&AUD.ctx) noiseHit(AUD.ctx.currentTime,0.1,800,'bandpass',0.06);
+      setTimeout(()=>{ if(p.fight && !p.down && Math.hypot(player.x-p.x,player.z-p.z)<1.45 && Math.random()<0.6) playerHit(6+Math.random()*5, p.x, p.z); }, 180); } }
+  const want=Math.atan2(tx-p.x, tz-p.z); let dy=want-p.yaw; while(dy>Math.PI)dy-=6.283; while(dy<-Math.PI)dy+=6.283; p.yaw+=dy*Math.min(1,dt*8);
+  if(sp>0){ const L=Math.hypot(tx-p.x,tz-p.z)||1, st=Math.min(L, sp*dt), nx=p.x+(tx-p.x)/L*st, nz=p.z+(tz-p.z)/L*st;
+    if(!footBlocked(nx,nz)) { p.x=nx; p.z=nz; } else if(!footBlocked(nx,p.z)) p.x=nx; else if(!footBlocked(p.x,nz)) p.z=nz; }
+  const ph=sp*dt*(Math.PI/0.6); p.phase=(p.phase||0)+ph; p.ph=(p.ph||0)+ph;
+  return true; }
+/* ---------- you get hit ---------- */
+const hurtEl=document.createElement('div'); hurtEl.style.cssText='position:fixed;inset:0;pointer-events:none;z-index:3;opacity:0;transition:opacity .25s;background:radial-gradient(ellipse at center, rgba(160,0,0,0) 45%, rgba(170,10,0,.55) 100%);'; document.body.appendChild(hurtEl);
+const hpEl=document.createElement('div'); hpEl.style.cssText='position:fixed;left:50%;transform:translateX(-50%);bottom:calc(92px + env(safe-area-inset-bottom));z-index:5;width:150px;height:9px;border-radius:6px;background:rgba(0,0,0,.5);border:1px solid rgba(255,230,190,.5);display:none;overflow:hidden;pointer-events:none;';
+hpEl.innerHTML='<div style="height:100%;width:100%;background:linear-gradient(90deg,#d93a1f,#f2b13a);transition:width .2s"></div>'; document.body.appendChild(hpEl); const hpFill=hpEl.firstChild;
+function playerHit(dmg, fx, fz){ if(FIGHT.ko>0 || mode!=='walk') return; FIGHT.hp=Math.max(0,FIGHT.hp-dmg); FIGHT.lastHit=performance.now()/1000; FIGHT.hurt=1;
+  const a=Math.atan2(player.x-fx, player.z-fz), nx=player.x+Math.sin(a)*0.35, nz=player.z+Math.cos(a)*0.35; if(!footBlocked(nx,nz)){ player.x=nx; player.z=nz; }
+  TP.stagger=1; thud(0.5,240); if(AUD.on&&AUD.ctx) noiseHit(AUD.ctx.currentTime+0.04,0.18,330,'bandpass',0.18);
+  if(FIGHT.hp<=0){ FIGHT.ko=4; showToast('Knocked out! You come round in a few seconds'); for(const c of crowd()) if(c.p.fight) endFight(c.p); } }
+function fightUI(dt){ const now=performance.now()/1000;
+  if(FIGHT.ko>0){ FIGHT.ko-=dt; if(FIGHT.ko<=0){ FIGHT.ko=0; FIGHT.hp=60; } }
+  else if(now-FIGHT.lastHit>3 && FIGHT.hp<100) FIGHT.hp=Math.min(100,FIGHT.hp+dt*6);
+  FIGHT.hurt=Math.max(0,FIGHT.hurt-dt*1.6); hurtEl.style.opacity=String(Math.max(FIGHT.hurt*0.9, FIGHT.hp<35?0.35:0, FIGHT.ko>0?0.6:0));
+  const show=mode==='walk' && (FIGHT.hp<100 || fighters()>0); hpEl.style.display=show?'block':'none'; hpFill.style.width=FIGHT.hp+'%'; }
 
 /* ---------- handgun ---------- */
 const _ro=new THREE.Vector3(), _rd=new THREE.Vector3();
@@ -4261,6 +4303,7 @@ function fireGun(){ if(!GUN.on || mode!=='walk' || GUN.cool>0) return; GUN.cool=
 /* ---------- per frame ---------- */
 const _cf=new THREE.Vector3();
 function footUpdate(dt, sp, vx, vz, t){
+  fightUI(dt); TP.stagger=Math.max(0,(TP.stagger||0)-dt*4);
   GUN.cool-=dt; if(GUN.hold && GUN.on) fireGun(); if(!(DRV.driving && DRV.type==='jet')) fxPuffUpdate(dt);
   const walk=mode==='walk', third=walk && TP.on;
   AV.root.visible=third; fpGun.visible=walk && !TP.on && GUN.on; AV.gun.visible=third && GUN.on;
@@ -4268,11 +4311,15 @@ function footUpdate(dt, sp, vx, vz, t){
   TP.recoil=Math.max(0,TP.recoil-dt*7); TP.flash-=dt;
   for(const g of [fpGun,AV.gun]){ g.userData.flash.material.opacity=TP.flash>0?0.95:0; }
   fpGun.position.z=-0.42+TP.recoil*0.05; fpGun.rotation.x=TP.recoil*0.25;
+  if(walk && !third && FIGHT.ko>0){ const g=VAL.eyeY(player.x,player.z,EYE,t)-EYE, k=Math.min(1,(4-FIGHT.ko)*2)*Math.min(1,FIGHT.ko*1.5);   // knocked out: lying on the ground
+    camera.position.set(player.x, g+EYE-(EYE-0.3)*k, player.z); camera.rotation.set(player.pitch*(1-k)+0.5*k, player.yaw, 0.9*k, 'YXZ'); return true; }
+  if(walk && !third && TP.stagger>0){ CAMFX.roll=(CAMFX.roll||0)+0; }
   if(!third) return false;
   // facing: the way you move, or where you aim / strike
   let want = TP.yaw; if(GUN.on || TP.act) want=player.yaw; else if(sp>0.4) want=Math.atan2(-vx,-vz);
   let dy=want-TP.yaw; while(dy>Math.PI)dy-=6.283; while(dy<-Math.PI)dy+=6.283; TP.yaw+=dy*Math.min(1,dt*(GUN.on?18:10));
   const g=VAL.eyeY(player.x,player.z,EYE,t)-EYE; AV.root.position.set(player.x,g,player.z); AV.root.rotation.y=TP.yaw;
+  { const k=FIGHT.ko>0?Math.min(1,(4-FIGHT.ko)*2)*Math.min(1,FIGHT.ko*1.5):0; AV.root.rotation.x=-1.5*k+(TP.stagger||0)*-0.25; }
   // walk cycle
   TP.ph=(TP.ph||0)+sp*dt*(Math.PI/0.7); const sw=Math.sin(TP.ph)*Math.min(1,sp/1.4), A=AV;
   A.hips.position.y=0.94+Math.abs(Math.cos(TP.ph))*0.035*Math.min(1,sp/1.4); A.chest.rotation.x=-Math.min(0.15,sp*0.03);
@@ -4292,7 +4339,7 @@ function footUpdate(dt, sp, vx, vz, t){
   for(let d=0.4; d<=D; d+=0.2){ const x=hx-fx*d, y=hy-fy*d, z=hz-fz*d; if(y<GY(x,z)+0.25 || (Math.abs(x)>300||Math.abs(z)>300 ? VAL.collides(x,z,0.15) : !!buildingAt(x,z))){ D=Math.max(0.4,d-0.25); break; } }
   camera.position.set(hx-fx*D+CAMFX.x, Math.max(hy-fy*D, GY(hx-fx*D,hz-fz*D)+0.3)+CAMFX.y, hz-fz*D+CAMFX.z); camera.rotation.set(cp+CAMFX.pitch, cy+CAMFX.yaw, 0, 'YXZ');
   return true; }
-window.__foot={TP, GUN, AV, crowd:()=>crowd(), melee:(k)=>melee(k), fire:()=>fireGun()};   // debugging / future multiplayer hooks
+window.__foot={FIGHT, fighters:()=>fighters(), startFight:(p)=>startFight(p), TP, GUN, AV, crowd:()=>crowd(), melee:(k)=>melee(k), fire:()=>fireGun()};   // debugging / future multiplayer hooks
 
 
 /* ====================================================================================================
@@ -5599,6 +5646,10 @@ function updatePeopleV(dt, active){
     if(p.down){ if((p.x-player.x)**2+(p.z-player.z)**2>Rd*Rd){ p.down=null; p.ri=-1; } else if(downTick(p,dt)){ const f=p.down.f;
         _PQ.makeRotationY(p.yaw); _PQ.multiply(_PL.makeRotationZ(p.down.roll*f)); _PQ.multiply(_PL.makeRotationX(p.down.dir*f*1.5)); _PQ.scale(_VS.set(p.h,p.h,p.h)); _PQ.setPosition(p.x, gy(p.x,p.z)+0.12*f, p.z);
         pTorso.setMatrixAt(p.i,_PQ); pHead.setMatrixAt(p.i,_PQ); for(const [j,side] of [[0,0.1],[1,-0.1]]){ _PL.makeRotationX(0); _PL.setPosition(side,0.86,0); pLeg.setMatrixAt(p.i*2+j, _VM.multiplyMatrices(_PQ,_PL)); } continue; } }
+    if(p.fight && p.ri>=0 && fightTick(p,dt)){ const sw=Math.sin(p.ph), y=gy(p.x,p.z)+Math.abs(Math.cos(p.ph))*0.03;
+      _PQ.makeRotationY(p.yaw); _PQ.multiply(_PL.makeRotationX(0.12+0.3*(p.fight.swing||0))); _PQ.scale(_VS.set(p.h,p.h,p.h)); _PQ.setPosition(p.x,y,p.z); pTorso.setMatrixAt(p.i,_PQ); pHead.setMatrixAt(p.i,_PQ);
+      for(const [j,side,ang] of [[0,0.1,sw*0.5],[1,-0.1,-sw*0.5]]){ _PL.makeRotationX(ang-0.12); _PL.setPosition(side,0.86,0); pLeg.setMatrixAt(p.i*2+j, _VM.multiplyMatrices(_PQ,_PL)); } continue; }
+    if(p.ri<0) p.fight=null;
     if(p.flee>0){ p.flee-=dt; if(p.fleeFrom && p.ri>=0){ const ux=Math.sin(p.yaw), uz=Math.cos(p.yaw); if((p.x-p.fleeFrom[0])*ux+(p.z-p.fleeFrom[1])*uz<0) p.dir=-p.dir; p.fleeFrom=null; } }
     if(p.ri<0 || (p.x-player.x)**2+(p.z-player.z)**2>Rd*Rd){ const sp=segNearPlayer(10, p.ri<0?8:90, Rd*0.85); if(!sp){ p.ri=-1; pTorso.setMatrixAt(p.i,HIDE); pHead.setMatrixAt(p.i,HIDE); pLeg.setMatrixAt(p.i*2,HIDE); pLeg.setMatrixAt(p.i*2+1,HIDE); continue; }
       p.ri=sp.ri; const cum=roadCum(sp.ri); p.s=cum[sp.v]; p.dir=Math.random()<0.5?1:-1; const r=RD.roads[sp.ri]; p.lat=(r.c>=8?(Math.random()-0.5)*r.w*0.6:(r.w/2+0.6))*(Math.random()<0.5?1:-1); p.snap=true; }
@@ -5752,7 +5803,7 @@ function animate(){
       if(keys['KeyS']||keys['ArrowDown']) f-=1;
       if(keys['KeyD']||keys['ArrowRight']) s+=1;
       if(keys['KeyA']||keys['ArrowLeft']) s-=1;
-      f += -joyVec.y; s += joyVec.x;
+      f += -joyVec.y; s += joyVec.x; if(FIGHT.ko>0){ f=0; s=0; }
       const L=Math.hypot(f,s); if(L>1){ f/=L; s/=L; }
       running = !!(keys['ShiftLeft']||keys['ShiftRight']) || Math.hypot(joyVec.x,joyVec.y)>0.98;
       const top = (running ? RUN : WALK)*SIMS.wade*VAL.walkK();
