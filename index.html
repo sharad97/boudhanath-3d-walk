@@ -3138,7 +3138,7 @@ function startBomb(){
     const c=AUD.ctx, o=c.createOscillator(), g=c.createGain(); o.frequency.setValueAtTime(48,ta); o.frequency.exponentialRampToValueAtTime(22,ta+5); g.gain.setValueAtTime(0.0001,ta); g.gain.exponentialRampToValueAtTime(0.6,ta+0.05); g.gain.exponentialRampToValueAtTime(0.0001,ta+6); o.connect(g); g.connect(AUD.master); o.start(ta); o.stop(ta+6.2);
     carAlarm(ta+1.5,10,700,950); carAlarm(ta+2.2,9,560,820); }
 }
-const nukeHud=document.createElement('div'); nukeHud.id='nukeHud'; nukeHud.style.cssText='position:fixed;left:calc(16px + env(safe-area-inset-left));top:calc(150px + env(safe-area-inset-top));z-index:5;pointer-events:none;color:#fff;font:600 11px/1.35 system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;text-shadow:0 1px 4px rgba(0,0,0,.7);display:none;'; document.body.appendChild(nukeHud);
+const nukeHud=document.createElement('div'); nukeHud.id='nukeHud'; nukeHud.style.cssText='position:fixed;left:calc(16px + env(safe-area-inset-left));top:calc('+(MOBILE?200:150)+'px + env(safe-area-inset-top));z-index:5;pointer-events:none;color:#fff;font:600 11px/1.35 system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;text-shadow:0 1px 4px rgba(0,0,0,.7);display:none;'; document.body.appendChild(nukeHud);
 function endBomb(){ SIM.bombT=-1; nukeHud.style.display='none'; mush.visible=false; fireball.visible=false; dustWall.visible=false; flashEl.style.opacity='0'; }
 function updateBomb(dt){
   if(SIM.bombT<0) return {light:0};
@@ -3658,8 +3658,10 @@ body.flying #flyBtns{display:grid;grid-template-columns:56px 56px;grid-auto-rows
 #drivePanel .row button[hidden]{display:none;}
 #flyGun,#flyMis{display:none!important;}
 body.jet #flyGun,body.jet #flyMis{display:flex!important;}
-body.jet.flying #flyBtns{grid-template-columns:56px 56px 56px;}
-#flyBtns #flyGun{grid-column:3;grid-row:1;} #flyBtns #flyMis{grid-column:3;grid-row:2;}
+body.jet.flying #flyBtns{grid-template-columns:56px 56px;grid-template-rows:56px 56px 56px;}
+body.jet #flyBtns #flyGun{grid-column:1;grid-row:1;} body.jet #flyBtns #flyMis{grid-column:2;grid-row:1;}
+body.jet #flyBtns #flyUp{grid-column:1;grid-row:2;} body.jet #flyBtns #flyTurbo{grid-column:2;grid-row:2;} body.jet #flyBtns #flyDown{grid-column:1;grid-row:3;}
+@media (pointer:coarse){ body.jet.flying #speedo{bottom:calc(214px + env(safe-area-inset-bottom));} }
 #flyBtns #flyGun.held{background:#8a2a14;}
 #jetAim{position:fixed;left:0;top:0;width:34px;height:34px;margin:-17px 0 0 -17px;z-index:4;pointer-events:none;display:none;border:2px solid rgba(255,214,120,.85);border-radius:50%;box-shadow:0 0 6px rgba(0,0,0,.6);}
 #jetAim.lock{border-color:rgba(255,90,60,.95);}
@@ -3719,7 +3721,7 @@ document.querySelectorAll('#actions .act').forEach(b=>{ if(!b.getAttribute('aria
 const panel=document.createElement('section'); panel.id='drivePanel'; panel.className='panel'; panel.hidden=true; panel.setAttribute('aria-label','Drive a vehicle');
 panel.innerHTML='<h2>Ride around the valley <small class="k">F get in / out</small></h2><div id="driveGrid">'+
   [['car','Car'],['moto','Motorbike'],['bike','Bicycle'],['heli','Helicopter'],['plane','Airplane'],['jet','Fighter jet'],['tp','3rd person'],['gun','Handgun']].map(([k,l])=>`<button class="simT" data-veh="${k}" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICON[k]}</svg>${l}</button>`).join('')+
-  '</div><div class="row"><button id="drvHorn">Horn</button><button id="drvCam">Camera</button><button id="drvExit">Get out</button></div><div class="row two" id="drvFullRow"><button id="drvRestore">Restore buildings</button><button id="drvFull" aria-pressed="false" title="Load every building in the 30 km circle (heavy: for fast devices; reload the page if it struggles)">Full city: off</button></div>'+
+  '</div><div class="row"><button id="drvHorn">Horn</button><button id="drvCam">Camera</button><button id="drvExit">Get out</button></div><div class="row two" id="drvFullRow"><button id="drvRestore">Restore buildings</button><button id="drvFull" hidden aria-pressed="false" title="Load every building in the 30 km circle (heavy: for fast devices; reload the page if it struggles)">Full city: off</button></div>'+
   '<p class="k">W / ↑ go · S / ↓ brake &amp; reverse · A D steer · Space handbrake · Shift boost · H horn · V camera · drag to look · scroll to zoom</p>'+
   '<p class="k">Helicopter: W / S forward &amp; back · A D turn · Space climb · C descend · Shift fast</p>'+
   '<p class="k">Fighter jet (starts in the air): like the airplane · G / 🔫 hold to fire the gun · R / 🚀 missile · they knock buildings down; Restore rebuilds</p>'+
