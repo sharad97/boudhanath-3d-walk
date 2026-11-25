@@ -4219,7 +4219,7 @@ function tileOcc(t){ const ox=X0+(t%NT)*TILE, oz=Z0+Math.floor(t/NT)*TILE, occ=n
   return occ; }
 function buildBld(t, lod){
   const ox=X0+(t%NT)*TILE, oz=Z0+Math.floor(t/NT)*TILE, cx0=ox+TILE/2, cz0=oz+TILE/2, near=lod===1;
-  const RG=tileRoadGrid(t); const onRoad=(x,z)=>{ const a=Math.floor((x-ox)/5), b=Math.floor((z-oz)/5); return a>=0&&b>=0&&a<96&&b<96&&RG[b*96+a]===1; };
+  const RG=near?tileRoadGrid(t):null; const onRoad=(x,z)=>{ if(!RG) return false; const a=Math.floor((x-ox)/5), b=Math.floor((z-oz)/5); return a>=0&&b>=0&&a<96&&b<96&&RG[b*96+a]===1; };
   const P=[], Nn=[], Uu=[], C=[], TH=[], KD=[], I=[]; let nv=0;
   const pushV=(x,y,z,c,top,h,kd,nx,ny,nz,u)=>{ P.push(x-cx0,y,z-cz0); C.push(c[0]*255|0,c[1]*255|0,c[2]*255|0); TH.push(top,h); KD.push(kd); if(near){ Nn.push(nx,ny,nz); Uu.push(u); } return nv++; };
   const tanks=[], mumty=[];
@@ -4272,10 +4272,9 @@ function buildBld(t, lod){
   for(const m of meshes){ if(m.isInstancedMesh) {} else gpuOnly(m.geometry); tileGroup.add(m); }
   return meshes;
 }
-function buildTile(t){
+function buildTile(t, detailed){
   const ox=X0+(t%NT)*TILE, oz=Z0+Math.floor(t/NT)*TILE, cx0=ox+TILE/2, cz0=oz+TILE/2;
-  const out={meshes:[]};
-  const occ=tileOcc(t); out.occ=occ;
+  const out={meshes:[], detailed:!!detailed};
   // ---- roads + lane markings, draped on the terrain
   const rp=[], rc=[], ru=[], ri=[]; let rv=0;
   const quad=(ax,az,bx,bz,w,y0,y1,col,u0,u1,lift)=>{ const dx=bx-ax, dz=bz-az, L=Math.hypot(dx,dz)||1, px=-dz/L*w/2, pz=dx/L*w/2;
@@ -4283,18 +4282,18 @@ function buildTile(t){
     for(let q=0;q<4;q++) rc.push(col[0],col[1],col[2]); ru.push(u0,w/7,u0,0,u1,w/7,u1,0);
     ri.push(rv,rv+2,rv+1,rv+1,rv+2,rv+3); rv+=4; };
   const drape=(L,s,wscale,lift,colFn,mark,wadd)=>{ const r=L.roads[L.segRoad[s]], v=L.segV[s]*2; const ax=L.C[v]/2, az=L.C[v+1]/2, bx=L.C[v+2]/2, bz=L.C[v+3]/2;
-    const len=Math.hypot(bx-ax,bz-az); if(len<0.3) return; const n=Math.max(1,Math.ceil(len/22)); const w=r.w*wscale+(wadd?wadd(r):0), col=colFn(r); const bridge=r.f&1;
+    const len=Math.hypot(bx-ax,bz-az); if(len<0.3) return; if(!detailed && r.c>=9 && L===RD) return; const n=detailed?Math.max(1,Math.ceil(len/22)):Math.max(1,Math.ceil(len/90)); const w=r.w*wscale+(wadd?wadd(r):0), col=colFn(r); const bridge=r.f&1;
     const ya=gy(ax,az), yb=gy(bx,bz);
     for(let q=0;q<n;q++){ const f0=q/n, f1=(q+1)/n; const x0=ax+(bx-ax)*f0, z0=az+(bz-az)*f0, x1=ax+(bx-ax)*f1, z1=az+(bz-az)*f1;
       const y0=bridge?ya+(yb-ya)*f0+0.6:gy(x0,z0), y1=bridge?ya+(yb-ya)*f1+0.6:gy(x1,z1);
-      quad(x0,z0,x1,z1,w+0.6,y0,y1,col,(f0*len)/7,(f1*len)/7,lift);
-      if(mark && r.c<=3 && r.w>=7.5){ const dl=len*(f1-f0); for(let d=0; d<dl; d+=9){ const g0=f0+(f1-f0)*d/dl, g1=f0+(f1-f0)*Math.min(dl,d+3)/dl;
+      quad(x0,z0,x1,z1,w+0.6,y0,y1,col,(f0*len)/7,(f1*len)/7,detailed?lift:lift+0.35);
+      if(detailed && mark && r.c<=3 && r.w>=7.5){ const dl=len*(f1-f0); for(let d=0; d<dl; d+=9){ const g0=f0+(f1-f0)*d/dl, g1=f0+(f1-f0)*Math.min(dl,d+3)/dl;
         quad(ax+(bx-ax)*g0, az+(bz-az)*g0, ax+(bx-ax)*g1, az+(bz-az)*g1, 0.16, y0+(y1-y0)*(d/dl), y0+(y1-y0)*Math.min(1,(d+3)/dl), WHITE, 0, 0, lift+0.03); } } } };
   for(let k=RD.start[t];k<RD.start[t+1];k++) drape(RD, RD.order[k], 1, 0.14, r=>RCOL[r.c]||RCOL[5], true);
-  for(let k=WL.start[t];k<WL.start[t+1];k++) drape(WL, WL.order[k], 1, 0.12, r=>r.c===1?BANK:BANK2, false, r=>r.c===1?14:r.c<=3?4:2);   // mud and sand banks under the water
+  if(detailed) for(let k=WL.start[t];k<WL.start[t+1];k++) drape(WL, WL.order[k], 1, 0.12, r=>r.c===1?BANK:BANK2, false, r=>r.c===1?14:r.c<=3?4:2);   // mud and sand banks under the water
   if(rv){ const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.Float32BufferAttribute(rp,3)); g.setAttribute('color',new THREE.Float32BufferAttribute(rc,3)); g.setAttribute('uv',new THREE.Float32BufferAttribute(ru,2));
     g.setIndex(rv>65535?new THREE.Uint32BufferAttribute(ri,1):new THREE.Uint16BufferAttribute(ri,1)); g.computeVertexNormals(); g.computeBoundingSphere();
-    const m=new THREE.Mesh(g,roadMat); m.position.set(cx0,0,cz0); m.receiveShadow=true; m.matrixAutoUpdate=false; m.updateMatrix(); out.meshes.push(m); }
+    const m=new THREE.Mesh(g,roadMat); m.position.set(cx0,0,cz0); m.receiveShadow=detailed; m.matrixAutoUpdate=false; m.updateMatrix(); out.meshes.push(m); }
   // ---- rivers and ponds
   rp.length=rc.length=ru.length=ri.length=0; rv=0;
   for(let k=WL.start[t];k<WL.start[t+1];k++) drape(WL, WL.order[k], 1, 0.22, ()=>WHITE, false);
@@ -4315,7 +4314,7 @@ function buildTrees(t, T){
   for(let k=0;k<cap*3 && pts.length<cap;k++){ const x=ox+r()*TILE, z=oz+r()*TILE; const c=lcAt(x,z);
     const p = c===1?0.9 : c===9?0.25 : c===7?0.12 : c===2?0.1 : c===3?0.03 : c===0?0.04 : c===4?0.03 : 0;
     if(r()>p) continue; if(inBoudha(x,z) || onAirfield(x,z)) continue;
-    const a=Math.floor((x-ox)/5), b=Math.floor((z-oz)/5); if(T.occ[b*96+a]) continue;
+    if(!T.occ) T.occ=tileOcc(t); const a=Math.floor((x-ox)/5), b=Math.floor((z-oz)/5); if(T.occ[b*96+a]) continue;
     if(!T.rg) T.rg=tileRoadGrid(t); if(T.rg[b*96+a]) continue;
     const y=gy(x,z), pine = c===1 && y+VM.E0>1800-470 && r()<0.75;   // pines on the forested rim above ~1,800 m
     pts.push([x,z,0.75+r()*0.7, r(), pine, y]); }
@@ -4526,26 +4525,41 @@ for(const L of VALLEY.labels){ const y=gy(L.x,L.z); if(!inCircle(L.x,L.z) && L.k
     const mesh=new THREE.Mesh(g,m); mesh.receiveShadow=true; mesh.name='durbarPaving'; heritageGroup.add(mesh); } }
 /* ---------------- streaming: which tiles exist around the viewer ---------------- */
 let lastCX=1e9, lastCZ=1e9, queue=[], tileR=0;
-function wantedTiles(x,z,R){ const out=[]; const tx=Math.floor((x-X0)/TILE), tz=Math.floor((z-Z0)/TILE), n=Math.ceil(R/TILE)+1;
-  for(let dz=-n;dz<=n;dz++) for(let dx=-n;dx<=n;dx++){ const a=tx+dx, b=tz+dz; if(a<0||b<0||a>=NT||b>=NT) continue; const cx=X0+(a+0.5)*TILE, cz=Z0+(b+0.5)*TILE; const d=Math.hypot(cx-x,cz-z); if(d<R+TILE*0.72) out.push([b*NT+a,d]); }
-  out.sort((p,q)=>p[1]-q[1]); return out; }
+function wantedTiles(x,z,R,fx,fz){ const out=[]; const tx=Math.floor((x-X0)/TILE), tz=Math.floor((z-Z0)/TILE), n=Math.ceil(R/TILE)+1;
+  for(let dz=-n;dz<=n;dz++) for(let dx=-n;dx<=n;dx++){ const a=tx+dx, b=tz+dz; if(a<0||b<0||a>=NT||b>=NT) continue; const cx=X0+(a+0.5)*TILE, cz=Z0+(b+0.5)*TILE; const ex=cx-x, ez=cz-z, d=Math.hypot(ex,ez); if(d>=R+TILE*0.72) continue;
+    const front = fx===undefined ? 1 : (d<1 ? 1 : (ex*fx+ez*fz)/d);   // tiles ahead of you first
+    out.push([b*NT+a, d, d*(1.35-0.55*front)]); }
+  out.sort((p,q)=>p[2]-q[2]); return out; }
+const STATS={tile:0,nt:0,far:0,nf:0,near:0,nn:0,tree:0,ntr:0};
+const _pv={x:0,z:0,t:0}; let vx_=0, vz_=0;
 function stream(x,z,camY,budget){
-  const agl=Math.max(0,camY-gy(x,z));
-  const base = mode==='drive' ? ((DRV.type==='heli'||DRV.type==='plane')? (MOBILE?800:1600) : (MOBILE?700:1300)) : (MOBILE?600:1100);
+  // look-ahead: when moving fast, stream around where you will be in ~4 s
+  const now=performance.now(); if(_pv.t){ const dtt=Math.max(1,(now-_pv.t))/1000; vx_+=((x-_pv.x)/dtt-vx_)*0.15; vz_+=((z-_pv.z)/dtt-vz_)*0.15; } _pv.x=x; _pv.z=z; _pv.t=now;
+  const spd=Math.hypot(vx_,vz_); if(spd>400){ vx_=vz_=0; }   // teleports
+  const ax=x+vx_*4, az=z+vz_*4;
+  camera.getWorldDirection(_fwd); let fx=_fwd.x, fz=_fwd.z; const fl=Math.hypot(fx,fz)||1; fx/=fl; fz/=fl;
+  const agl=Math.max(0,camY-gy(x,z)), flying = mode==='drive' && (DRV.type==='heli'||DRV.type==='plane');
+  const base = mode==='drive' ? (flying? (MOBILE?800:1600) : (MOBILE?700:1300)) : (MOBILE?600:1100);
   const R=Math.min(MOBILE?1700:4200, base + agl*(MOBILE?1.5:3.2)); tileR=R;
-  const treeR=MOBILE?600:900;
-  if(Math.hypot(x-lastCX,z-lastCZ)>60 || Math.abs(R-(stream.lastR||0))>150){ lastCX=x; lastCZ=z; stream.lastR=R; queue=wantedTiles(x,z,R);
-    const keep=new Set(wantedTiles(x,z,R*1.2+TILE).map(p=>p[0])); for(const [t,T] of TILES){ if(!keep.has(t)){ disposeTile(T); TILES.delete(t); } } }
-  const t0=performance.now();
-  const NEAR_R=MOBILE?420:700;
-  for(const [t] of queue){ if(performance.now()-t0>budget) break;
+  const treeR=MOBILE?600:900, NEAR_R=MOBILE?420:700, ROAD_R=MOBILE?650:1100;
+  if(Math.hypot(ax-lastCX,az-lastCZ)>40 || Math.abs(R-(stream.lastR||0))>150 || (stream.fdot=(stream.fx||0)*fx+(stream.fz||0)*fz)<0.9){ lastCX=ax; lastCZ=az; stream.lastR=R; stream.fx=fx; stream.fz=fz; queue=wantedTiles(ax,az,R,fx,fz);
+    const keep=new Set(wantedTiles(x,z,R*1.2+TILE).map(p=>p[0])); for(const q of queue) keep.add(q[0]); for(const [t,T] of TILES){ if(!keep.has(t)){ disposeTile(T); TILES.delete(t); } } }
+  const t0=performance.now(), B=flying?budget*1.6:budget;
+  // pass 1: every wanted tile gets plain boxes + simple road strips right away (cheap)
+  for(const [t] of queue){ if(performance.now()-t0>B*0.75) break; if(TILES.has(t)) continue;
+    const q0=performance.now(); const T=buildTile(t,false); T.bld=buildBld(t,0); T.lod=0; TILES.set(t,T); STATS.tile+=performance.now()-q0; STATS.nt++; }
+  // pass 2: close-up detail (facades, roof tanks, draped roads with markings, trees)
+  for(const [t] of queue){ if(performance.now()-t0>B) break; const T=TILES.get(t); if(!T) continue;
     const d=Math.hypot(X0+(t%NT+0.5)*TILE-x, Z0+(Math.floor(t/NT)+0.5)*TILE-z);
-    let T=TILES.get(t); if(!T){ T=buildTile(t); TILES.set(t,T); }
+    const wantR = d<ROAD_R || (T.detailed && d<ROAD_R*1.25);
+    if(wantR!==T.detailed){ for(const m of T.meshes){ tileGroup.remove(m); m.geometry.dispose(); } const N=buildTile(t,wantR); T.meshes=N.meshes; T.detailed=N.detailed; }
     const want = (d<NEAR_R || (T.lod===1 && d<NEAR_R*1.3)) ? 1 : 0;
-    if(T.lod!==want){ dropBld(T); T.bld=buildBld(t,want); T.lod=want; }
-    if(d<treeR && !T.trees && !T.noTrees){ T.trees=buildTrees(t,T); if(!T.trees) T.noTrees=true; }
+    if(T.lod!==want){ const q0=performance.now(); dropBld(T); T.bld=buildBld(t,want); T.lod=want; STATS[want?'near':'far']+=performance.now()-q0; STATS[want?'nn':'nf']++; }
+    if(d<treeR && !T.trees && !T.noTrees && !flying){ const q0=performance.now(); T.trees=buildTrees(t,T); if(!T.trees) T.noTrees=true; STATS.tree+=performance.now()-q0; STATS.ntr++; }
+    if(d<treeR && !T.trees && !T.noTrees && flying && agl<120){ T.trees=buildTrees(t,T); if(!T.trees) T.noTrees=true; }
     if(d>treeR*1.3 && T.trees){ for(const m of T.trees){ tileGroup.remove(m); m.dispose(); } T.trees=null; T.noTrees=false; } }
 }
+const _fwd=new THREE.Vector3();
 
 /* ---------------- public API used by controls, driving, the minimap and the loop ---------------- */
 function collidesV(x,z,R,ox,oz){
@@ -4802,7 +4816,7 @@ function boudhaLOD(){ const far=Math.hypot(camera.position.x,camera.position.z)>
   for(const o of BOUDHA_LIFE){ if(far){ o.userData.vWas=o.visible; o.visible=false; } else o.visible=o.userData.vWas!==undefined?o.userData.vWas:true; } }
 let firstStream=true;
 camera.far=150000; camera.updateProjectionMatrix();
-return {lm:LM_TOPS, dhara:DHARA, vpeople:VPEO, eyeY, walkK, waterInfo, bldAt, bldsNear, gy, inCircle, inBoudha, collides:collidesV, roofY, roadsNear, minimap, update, stream, X0, Z0, SPAN, E0:VM.E0, DATUM:VM.DATUM, CX, CZ, RAD, TILES, ovCanvas, runway:()=>VALLEY.runway, meta:VM};
+return {stats:STATS, wanted:()=>queue.length, lm:LM_TOPS, dhara:DHARA, vpeople:VPEO, eyeY, walkK, waterInfo, bldAt, bldsNear, gy, inCircle, inBoudha, collides:collidesV, roofY, roadsNear, minimap, update, stream, X0, Z0, SPAN, E0:VM.E0, DATUM:VM.DATUM, CX, CZ, RAD, TILES, ovCanvas, runway:()=>VALLEY.runway, meta:VM};
 })();
 function GY(x,z){ return VAL.gy(x,z); }
 
