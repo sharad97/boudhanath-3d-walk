@@ -2905,7 +2905,7 @@ function updateBooms(dt){ for(const B of BOOMS){ if(!B.on) continue; B.t+=dt; co
 function restoreCity(quiet){ const n=VAL.restore(); clearDebris(); clearChunks(); reviveAll(); FIGHT.hp=100; FIGHT.ko=0; if(!quiet) showToast(n?'Rebuilt '+n.toLocaleString('en')+' buildings':'Nothing to rebuild'); return n; }
 
 /* ---------------- ATOMIC BLAST: fireball, mushroom cloud, dust wall ---------------- */
-const BOMB={gz:new THREE.Vector3(), dist:560, dir:new THREE.Vector3(), built:false, list:[], li:0};   // close enough to watch the city go (was 1.9 km)
+const BOMB={gz:new THREE.Vector3(), dist:190, dir:new THREE.Vector3(), built:false, list:[], li:0};   // close enough to watch the city go (was 1.9 km)
 const MUSH_N=MOBILE?520:1100;
 const mushGeo=bbGeo(MUSH_N, [['aSeed',4,(a,o)=>{ for(let k=0;k<4;k++) a[o+k]=Math.random(); }]]);
 const mushMat=bbMat(`attribute vec4 aSeed; uniform float uT, uGlow, uFade; uniform vec3 uGZ;
@@ -3365,24 +3365,47 @@ addEventListener('keydown', e=>{
 const simTiles={}; simPanel.querySelectorAll('.simT').forEach(b=>simTiles[b.dataset.sim]=b);
 let uiT=0;
 function simUISync(dt){ uiT+=dt; if(uiT<0.2) return; uiT=0;
-  const st={rain:SIM.on.rain, storm:SIM.on.storm, lightning:BOLTS.length>0, snow:SIM.on.snow, aurora:SIM.on.aurora, quake:SIM.quakeT>=0, flood:SIM.on.flood, fire:FIRES.some(f=>f.target>0), bomb:SIM.bombT>=0, ufo:SIM.on.ufo};
+  const st={rain:SIM.on.rain, storm:SIM.on.storm, lightning:PIN.lightning, snow:SIM.on.snow, aurora:SIM.on.aurora, quake:SIM.quakeT>=0, flood:SIM.on.flood, fire:PIN.fire, bomb:PIN.bomb, ufo:SIM.on.ufo};
   for(const k in st) simTiles[k].setAttribute('aria-pressed', st[k]?'true':'false'); }
+/* ---------- pinned quick buttons: after you pick A-bomb, Fire or Lightning the panel closes and a button stays on the left for repeats ---------- */
+const PIN={bomb:false, fire:false, lightning:false};
+const pinBox=document.createElement('div'); pinBox.id='pinBtns';
+pinBox.innerHTML='<button data-pin="bomb" title="Another atomic blast (9)">☢</button><button data-pin="fire" title="Set the building you look at on fire (8)">🔥</button><button data-pin="lightning" title="Lightning strike (3)">⚡</button>';
+document.body.appendChild(pinBox);
+{ const c=document.createElement('style'); c.textContent=`#pinBtns{position:fixed;left:calc(14px + env(safe-area-inset-left));top:calc(52% - 90px);z-index:6;display:flex;flex-direction:column;gap:10px;}
+#pinBtns button{width:54px;height:54px;border-radius:50%;border:1px solid var(--panel-line);background:rgba(38,26,16,.85);color:#ffe9c4;font-size:26px;line-height:1;display:none;align-items:center;justify-content:center;padding:0;box-shadow:0 6px 18px rgba(0,0,0,.35);touch-action:none;}
+#pinBtns button.on{display:flex;} #pinBtns button[data-pin="bomb"]{background:rgba(120,30,16,.9);border-color:#ffb067;}`; document.head.appendChild(c); }
+pinBox.querySelectorAll('button').forEach(b=>b.addEventListener('pointerdown', e=>{ e.preventDefault(); audioUnlock(); const k=b.dataset.pin; if(k==='bomb') bombNow(); else if(k==='fire') fireNow(); else strike(true); }));
+function pinSync(){ pinBox.querySelectorAll('button').forEach(b=>b.classList.toggle('on', !!PIN[b.dataset.pin])); }
+function closeSimPanel(){ simPanel.hidden=true; simBtn.setAttribute('aria-pressed','false'); }
+function fireNow(){ const b=lookTarget(); if(b && igniteBuilding(b)){ SIM.on.fire=true; } else showToast('Look at a building to set it on fire'); }
+function bombNow(){ if(SIM.bombT>=0) endBomb(); startBomb(); CINE.t=0; }
+/* ---------- A-bomb camera: watch the nearby blocks blow apart from where you stand, then pull back ~1.7 km to see the mushroom cloud, then glide back to you ---------- */
+const CINE={t:-1, pos:new THREE.Vector3(), q:new THREE.Quaternion(), m:new THREE.PerspectiveCamera()};   // a camera, so lookAt aims its -z axis
+const CINE_OUT0=3.0, CINE_OUT1=8.5, CINE_IN0=19, CINE_IN1=24;
+function cineCam(dt){ if(CINE.t<0) return; if(SIM.bombT<0 && CINE.t>CINE_IN1){ CINE.t=-1; return; } CINE.t+=dt; const T=CINE.t;
+  const ss=(a,b,x)=>{ const k=Math.max(0,Math.min(1,(x-a)/(b-a))); return k*k*(3-2*k); };
+  const w = T<CINE_IN0 ? ss(CINE_OUT0,CINE_OUT1,T) : 1-ss(CINE_IN0,CINE_IN1,T); if(T>CINE_IN1){ CINE.t=-1; return; } if(w<=0.0005) return;
+  const G=BOMB.gz; let bx=player.x-G.x, bz=player.z-G.z; const bl=Math.hypot(bx,bz)||1; bx/=bl; bz/=bl;
+  const side=0.35; CINE.pos.set(G.x+(bx-bz*side)*1700, G.y+480, G.z+(bz+bx*side)*1700);
+  CINE.m.position.copy(CINE.pos); CINE.m.lookAt(G.x, G.y+520, G.z); CINE.q.copy(CINE.m.quaternion);
+  camera.position.lerp(CINE.pos, w); camera.quaternion.slerp(CINE.q, w); }
 function simToggle(k){
   audioUnlock();
   const on=SIM.on;
   switch(k){
     case 'rain': on.rain=!on.rain; if(on.rain) on.snow=false; showToast(on.rain?'Monsoon rain: puddles spread and the paving shines':'Rain stopping'); break;
     case 'storm': on.storm=!on.storm; if(on.storm){ on.snow=false; SIM.nextStrike=1.5; } showToast(on.storm?'Thunderstorm: gusts, heavy rain and lightning':'The storm is passing'); break;
-    case 'lightning': strike(true); showToast('Lightning! Count the seconds to the thunder (≈3 s per km)'); break;
+    case 'lightning': PIN.lightning=!PIN.lightning; if(PIN.lightning){ closeSimPanel(); strike(true); showToast('Lightning! ⚡ is pinned on the left: tap it for another strike. Tap Lightning in Disasters to remove it'); } else showToast('Lightning button removed'); pinSync(); break;
     case 'snow': on.snow=!on.snow; if(on.snow){ on.rain=false; on.storm=false; } showToast(on.snow?'Snow: rare here, Kathmandu last saw it in 2007':'Snow stopping; it will melt'); break;
     case 'aurora': on.aurora=!on.aurora; showToast(on.aurora?'Aurora night (pure fantasy this far south, at 27.7° N)':'Aurora fading'); break;
     case 'quake': if(SIM.quakeT<0){ startQuake(); showToast('Earthquake! M7.8, the size of the April 2015 Gorkha quake'); } else { SIM.quakeT=Math.max(SIM.quakeT,15); showToast('The shaking is easing'); } break;
     case 'flood': on.flood=!on.flood; if(on.flood && !on.snow) on.rain=true; if(on.flood) SIM.floodBase=null; showToast(on.flood?(VAL.inBoudha(player.x,player.z)?'Flash flood: water rising through the streets':'Flood: the water rises from the lowest ground and fills the valley floor, up to 9 m — swim when it gets deep'):'Floodwater draining away'); break;
-    case 'fire': if(FIRES.some(f=>f.target>0)){ for(const F of FIRES) F.target=0; on.fire=false; showToast('Fire crews dousing the flames'); }
-      else { const b=lookTarget(); if(b && igniteBuilding(b)){ on.fire=true; showToast('Fire! Look at a building to set where it starts; it can spread, and rain puts it out'); } else showToast('Look at a building to set it on fire'); } break;
-    case 'bomb': if(SIM.bombT<0){ startBomb(); showToast('Atomic blast 560 m ahead: the shock wave flattens the city and reaches you in 1.6 s. Restore buildings rebuilds them'); } else { endBomb(); showToast('Blast cleared'); } break;
+    case 'fire': PIN.fire=!PIN.fire; if(!PIN.fire){ for(const F of FIRES) F.target=0; on.fire=false; showToast('Fire crews dousing the flames; fire button removed'); }
+      else { closeSimPanel(); fireNow(); showToast('🔥 is pinned on the left: look at a building and tap it to set it alight. Tap Fire in Disasters to put everything out'); } pinSync(); break;
+    case 'bomb': PIN.bomb=!PIN.bomb; if(PIN.bomb){ closeSimPanel(); bombNow(); showToast('Atomic blast 190 m ahead! ☢ stays pinned on the left for another. Restore buildings rebuilds the city'); } else { endBomb(); CINE.t=-1; showToast('A-bomb button removed'); } pinSync(); break;
     case 'ufo': on.ufo=!on.ufo; if(on.ufo){ ufoStart(); showToast(VAL.inBoudha(player.x,player.z)?'UFO sighted over the stupa. Stay out of the beam!':'UFO sighted overhead. Stay out of the beam!'); } else if(UFO){ camera.getWorldDirection(_v); ufoGo(UFO, UFO.pos.clone().add(new THREE.Vector3(-_v.x*500+200, 500, -_v.z*500)), 'leave', 3.2); showToast('The UFO leaves; everyone it took is back'); } break;
-    case 'calm': for(const n in on) on[n]=false; for(const F of FIRES) F.target=0; if(SIM.quakeT>=0) SIM.quakeT=Math.max(SIM.quakeT,22); endBomb(); SIM.haze=0; SIM.ash=0; SIM.panicHold=0; SIM.fast=4; clearDebris();
+    case 'calm': PIN.bomb=PIN.fire=PIN.lightning=false; pinSync(); CINE.t=-1; for(const n in on) on[n]=false; for(const F of FIRES) F.target=0; if(SIM.quakeT>=0) SIM.quakeT=Math.max(SIM.quakeT,22); endBomb(); SIM.haze=0; SIM.ash=0; SIM.panicHold=0; SIM.fast=4; clearDebris();
       if(UFO && UFO.g.visible){ UFO.g.visible=false; UFO.spot.visible=false; UFO.beam.visible=false; } ufoRelease(); showToast(VAL.inBoudha(player.x,player.z)?'All calm over Boudha':'All calm over the valley'); break;
   }
   simUISync(1);
@@ -5838,6 +5861,7 @@ function animate(){
     }
     if(mode!=='walk') footUpdate(dt,0,0,0,t);
     updateSim(dt, t);
+    cineCam(dt);
     VAL.update(dt);
     // shadows follow the viewer (texel-snapped)
     if(mode==='orbit') placeShadow(ORB.x,ORB.z,165);
