@@ -4087,7 +4087,8 @@ const fpGun=makePistol(); fpGun.scale.setScalar(1.6); fpGun.position.set(0.17,-0
 /* ---------- UI ---------- */
 { const css=document.createElement('style'); css.textContent=`
 #footBtns{position:fixed;right:calc(84px + env(safe-area-inset-right));bottom:calc(18px + env(safe-area-inset-bottom));z-index:6;display:none;gap:10px;}
-body.onfoot #footBtns{display:flex;}
+body.onfoot #footBtns{display:grid;grid-template-columns:60px 60px;grid-template-rows:60px 60px;}
+#footBtns #ftPunch{grid-column:1;grid-row:1;} #footBtns #ftKick{grid-column:1;grid-row:2;} #footBtns #ftFire{grid-column:2;grid-row:2;}   /* punch stacked above kick: clear of the joystick */
 #footBtns button{width:60px;height:60px;border-radius:50%;border:1px solid var(--panel-line);background:rgba(38,26,16,.82);color:#ffe9c4;font-size:26px;display:flex;align-items:center;justify-content:center;padding:0;touch-action:none;-webkit-user-select:none;user-select:none;box-shadow:0 6px 18px rgba(0,0,0,.35);}
 #footBtns button.held{background:var(--maroon);border-color:#d98a4a;}
 #footBtns #ftFire{display:none;background:rgba(120,30,16,.88);} body.armed #footBtns #ftFire{display:flex;}
