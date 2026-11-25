@@ -392,10 +392,22 @@ const PRESETS = {
   golden: { el:7,  az:252, lightEl:9,  lightAz:252, sun:0xffaa60, sunI:2.7, hs:0xffcf9e, hg:0x6a4f3e, hI:0.36, envI:0.55, fog:0xe3b688, fogD:0.0019,  exp:1.02, turb:6.5, ray:2.4, mie:0.010, mieG:0.86, cov:0.34, dens:0.42, gain:0.55, lights:0.25, envGround:0x6a5240 },
   dusk:   { el:-0.4, az:262, lightEl:38, lightAz:120, sun:0x9fb2ff, sunI:0.3, hs:0x6f82b8, hg:0x332a36, hI:0.95, envI:1.0,  fog:0x56608a, fogD:0.0019,  exp:1.4, turb:4.5, ray:3.6, mie:0.006, mieG:0.84, cov:0.28, dens:0.38, gain:2.6, lights:1.0, envGround:0x2b2a33 },
 };
-const presetOrder=['day','golden','dusk'];
+PRESETS.night = { el:-30, az:300, lightEl:42, lightAz:120, sun:0x8fa2e0, sunI:0.16, hs:0x33405e, hg:0x16151c, hI:0.55, envI:0.55, fog:0x1a2133, fogD:0.0017, exp:1.45, turb:2.5, ray:3.0, mie:0.005, mieG:0.8, cov:0.22, dens:0.35, gain:0.9, lights:1.0, envGround:0x16171d };   // moonlit night: lamps and windows on
+PRESETS.cycle = Object.assign({}, PRESETS.day);
+/* day–night cycle: a full 24 h in CYCLE.len seconds. The sun rises in the east (06:00) and sets in the west (18:00);
+   the sky blends night → dusk → golden → midday by the sun's elevation. */
+const CYCLE={t:9.0, len:720};
+const _pa=new THREE.Color(), _pb=new THREE.Color(), PCOL={sun:1,hs:1,hg:1,fog:1,envGround:1};
+function cyclePreset(t){ const P=PRESETS.cycle, e=72*Math.sin(Math.PI*(t-6)/12);
+  let A,B,f; if(e>=25){ A=B=PRESETS.day; f=0; } else if(e>=6){ A=PRESETS.golden; B=PRESETS.day; f=(e-6)/19; } else if(e>=-2){ A=PRESETS.dusk; B=PRESETS.golden; f=(e+2)/8; } else if(e>=-12){ A=PRESETS.night; B=PRESETS.dusk; f=(e+12)/10; } else { A=B=PRESETS.night; f=0; }
+  f=Math.max(0,Math.min(1,f)); for(const k in A){ if(PCOL[k]){ _pa.set(A[k]).lerp(_pb.set(B[k]),f); P[k]=_pa.getHex(); } else P[k]=A[k]+(B[k]-A[k])*f; }
+  P.el=e; P.az=(((90+(t-6)/12*180)%360)+360)%360; if(e>4){ P.lightEl=Math.max(e,8); P.lightAz=P.az; } else { P.lightEl=42; P.lightAz=120; }
+  return P; }
+const presetOrder=['day','golden','dusk','night','cycle'];
 let presetName='day';
 function dirFrom(el, az){ const e=el*Math.PI/180, a=az*Math.PI/180; return new THREE.Vector3(Math.sin(a)*Math.cos(e), Math.sin(e), -Math.cos(a)*Math.cos(e)); }
 function applyPreset(name){
+  if(name==='cycle') cyclePreset(CYCLE.t);
   const P=PRESETS[name]; presetName=name;
   SU.sunPosition.value.copy(dirFrom(P.el, P.az));
   SU.turbidity.value=P.turb; SU.rayleigh.value=P.ray; SU.mieCoefficient.value=P.mie; SU.mieDirectionalG.value=P.mieG;
@@ -2527,11 +2539,11 @@ function setTimeOfDay(name){
   const L=LIGHTS.value;
   DEC.win.emissiveIntensity=L*0.62; DEC.shop.emissiveIntensity=0.32+L*0.9; DEC.globeMat.emissiveIntensity=0.05+L*3.2; DEC.glow.material.opacity=L*0.85;
   btnLight.setAttribute('aria-pressed', name==='day'?'false':'true');
-  if(lightLabel) lightLabel.textContent = name==='day'?'Golden hour': name==='golden'?'Dusk':'Midday';
+  if(lightLabel) lightLabel.textContent = {day:'Golden hour', golden:'Dusk', dusk:'Night', night:'Day & night', cycle:'Midday'}[name];
 }
 btnLight.addEventListener('click', ()=>{
   const next=presetOrder[(presetOrder.indexOf(presetName)+1)%presetOrder.length]; setTimeOfDay(next);
-  showToast(next==='day'?'Midday light': next==='golden'?'Golden hour over Boudha':'Dusk — shop lights and street lamps on');
+  showToast({day:'Midday light', golden:'Golden hour', dusk:'Dusk — shop lights and street lamps on', night:'Night — moonlight, lamps and lit windows', cycle:'Day & night cycle — a full day every 12 minutes'}[next]);
 });
 document.getElementById('btnReset').addEventListener('click', ()=>{
   setMode('walk'); player.x=GATE_POS[0]+GATE_OUT[0]*3.6; player.z=GATE_POS[1]+GATE_OUT[1]*3.6; player.yaw=Math.atan2(GATE_OUT[0],GATE_OUT[1]); player.pitch=0.06;
@@ -2671,7 +2683,7 @@ const starMat=new THREE.ShaderMaterial({ uniforms:{uTime:SIMT, uOp:{value:0}}, v
   fragmentShader:`uniform float uOp; varying float vB; void main(){ float r=length(gl_PointCoord-0.5)*2.0; gl_FragColor=vec4(vec3(0.85,0.9,1.0), (1.0-smoothstep(0.0,1.0,r))*vB*uOp); }`, transparent:true, depthWrite:false, fog:false });
 const stars=new THREE.Points(starGeo, starMat); stars.frustumCulled=false; stars.visible=false; stars.renderOrder=-1; scene.add(stars);
 const auroraMat=new THREE.ShaderMaterial({ uniforms:{uTime:SIMT, uAmt:{value:0}},
-  vertexShader:`attribute vec2 aN; attribute float aK; uniform float uTime; varying vec2 vUv; varying float vK; void main(){ vUv=uv; vK=aK; vec3 p=position; float w=sin(uv.x*11.0+uTime*0.23+aK*3.0)*38.0+sin(uv.x*27.0-uTime*0.41+aK)*14.0; p.xz+=aN*w; gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.0); }`,
+  vertexShader:`attribute vec2 aN; attribute float aK; uniform float uTime; varying vec2 vUv; varying float vK; void main(){ vUv=uv; vK=aK; vec3 p=position; float w=sin(uv.x*11.0+uTime*0.23+aK*3.0)*38.0+sin(uv.x*27.0-uTime*0.41+aK)*14.0; p.xz+=aN*w; gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.0); gl_Position.z=gl_Position.w*0.99999; }`,
   fragmentShader:`uniform float uTime,uAmt; varying vec2 vUv; varying float vK; ${GLSL_N}
   void main(){ float x=vUv.x, y=vUv.y; float rays=pow(vn(vec2(x*140.0+vK*13.0-uTime*0.35, uTime*0.05)),2.0)*0.8+0.35*vn(vec2(x*30.0+uTime*0.12,vK));
     float band=smoothstep(0.0,0.05,y)*pow(1.0-y,1.7); float ends=smoothstep(0.0,0.12,x)*(1.0-smoothstep(0.88,1.0,x));
@@ -2680,7 +2692,7 @@ const auroraMat=new THREE.ShaderMaterial({ uniforms:{uTime:SIMT, uAmt:{value:0}}
     gl_FragColor=vec4(col*1.6, band*ends*rays*pulse*uAmt*0.85); }`,
   transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.DoubleSide, fog:false });
 const aurora=(function(){ const pos=[], uv=[], nrm=[], kk=[], idx=[]; let base=0;
-  [[ -1.05, 0.95, 1150, 210, 520, 0],[ -0.6, 1.35, 1250, 260, 680, 1],[ -1.4, 0.2, 1080, 190, 430, 2]].forEach(([a0,a1,R,yb,ht,k])=>{
+  [[ -1.05, 0.95, 1150, 330, 560, 0],[ -0.6, 1.35, 1250, 400, 700, 1],[ -1.4, 0.2, 1080, 310, 470, 2]].forEach(([a0,a1,R,yb,ht,k])=>{
     const SEG=90; for(let i=0;i<=SEG;i++){ const f=i/SEG, a=a0+(a1-a0)*f - Math.PI/2; const r=R+Math.sin(f*7+k)*60; const x=Math.cos(a)*r, z=Math.sin(a)*r;
       const yb2=yb+Math.sin(f*5+k*2)*30;
       pos.push(x,yb2,z, x,yb2+ht,z); uv.push(f,0, f,1); nrm.push(Math.cos(a),Math.sin(a), Math.cos(a),Math.sin(a)); kk.push(k,k);
@@ -3055,7 +3067,7 @@ function applyAtmos(dt, bombLight, flick){
   starMat.uniforms.uOp.value=Math.max(au, night*0.55*(1-hz))*(1-oc*0.95); stars.visible=starMat.uniforms.uOp.value>0.01;
   auroraMat.uniforms.uAmt.value=au*(1-oc*0.8); aurora.visible=au>0.01;
   // reflections follow the sky (throttled PMREM rebuild)
-  envT+=dt; const sig=[Math.round(oc*4),Math.round(au*4),Math.round(hz*4),presetName].join();
+  envT+=dt; const sig=[Math.round(oc*4),Math.round(au*4),Math.round(hz*4),presetName, presetName==='cycle'?Math.round(P.el/7)+'_'+Math.round(P.lights*4):''].join();
   if(sig!==envSig && envT>(MOBILE?2:1)){ envSig=sig; envT=0; envGround.material.color.set(P.envGround).lerp(NIGHTF,au).lerp(_c1,oc*0.6); envScene.userData.ring.material.color.copy(envGround.material.color).multiplyScalar(0.8); rebuildEnv(); }
 }
 
@@ -3133,6 +3145,7 @@ function updateSim(dt, t){
   const sh=SIM.quakeAmp*(reduced?0.25:1);
   CAMFX.x=sh*0.05*(Math.sin(t*23.1)+0.6*Math.sin(t*37.7)); CAMFX.z=sh*0.05*(Math.cos(t*19.3)+0.6*Math.sin(t*31.1)); CAMFX.y=sh*0.03*Math.sin(t*29.3)+SIM.lift;
   CAMFX.pitch=sh*0.012*Math.sin(t*17.9); CAMFX.roll=sh*0.016*Math.sin(t*13.7); CAMFX.yaw=sh*0.006*Math.sin(t*11.3);
+  if(presetName==='cycle'){ CYCLE.t=(CYCLE.t+dt*24/CYCLE.len)%24; const P=cyclePreset(CYCLE.t); SU.sunPosition.value.copy(dirFrom(P.el,P.az)); }
   applyAtmos(dt, bomb.light, flick);
   sndUpdate(dt, fr.nearFire, ufoD);
   simUISync(dt);
@@ -3340,7 +3353,7 @@ function makeHeli(){
   const rotor=new THREE.Group(); rotor.position.set(0,3.75,0.25); g.add(rotor);
   rotor.add(new THREE.Mesh(new THREE.SphereGeometry(0.22,12,8), metal));
   for(let k=0;k<4;k++){ const bl=new THREE.Mesh(new THREE.BoxGeometry(4.7,0.045,0.3).translate(2.45,0,0), dark); bl.rotation.y=k*Math.PI/2; bl.rotation.x=0.04; rotor.add(bl); }
-  const disc=new THREE.Mesh(new THREE.CircleGeometry(5.0,40).rotateX(-Math.PI/2), new THREE.MeshBasicMaterial({color:0x6a6e74, transparent:true, opacity:0, depthWrite:false, side:THREE.DoubleSide}));
+  const disc=new THREE.Mesh(new THREE.CircleGeometry(5.0,40).rotateX(-Math.PI/2), new THREE.MeshLambertMaterial({color:0x6a6e74, transparent:true, opacity:0, depthWrite:false, side:THREE.DoubleSide}));
   disc.position.set(0,3.76,0.25); g.add(disc);
   for(const sx of [-1,1]){ const sk=new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.06,4.0,8).rotateX(Math.PI/2), metal); sk.position.set(sx*1.05,0.1,0.05); g.add(sk);
     const tip=new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.06,0.5,8).rotateX(Math.PI/2+0.7), metal); tip.position.set(sx*1.05,0.22,-2.12); g.add(tip);
@@ -3375,7 +3388,7 @@ function makePlane(){
     const pr=new THREE.Group(); pr.position.set(sx*4.1,3.55,-4.45); g.add(pr); props.push(pr);
     for(let k=0;k<6;k++){ const bl=new THREE.Mesh(new THREE.BoxGeometry(0.18,1.9,0.05).translate(0,0.95,0), dark); bl.rotation.z=k*Math.PI/3; pr.add(bl); }
     add(new THREE.BoxGeometry(0.9,0.5,2.6), grey, sx*1.55,1.5,0.6); }                                          // main gear pods
-  const disc=new THREE.MeshBasicMaterial({color:0x50545a, transparent:true, opacity:0, depthWrite:false, side:THREE.DoubleSide}); const discs=[];
+  const disc=new THREE.MeshLambertMaterial({color:0x50545a, transparent:true, opacity:0, depthWrite:false, side:THREE.DoubleSide}); const discs=[];
   for(const sx of [-1,1]){ const d=add(new THREE.CircleGeometry(1.95,32), disc, sx*4.1,3.55,-4.5); discs.push(d); }
   add(new THREE.BoxGeometry(0.32,5.2,3.6), white, 0,6.1,13.6).rotation.x=-0.42;                                 // fin
   add(new THREE.BoxGeometry(0.34,5.0,0.9), blue, 0,6.3,14.9).rotation.x=-0.42;
@@ -3519,7 +3532,7 @@ document.querySelectorAll('#actions .act').forEach(b=>{ if(!b.getAttribute('aria
 const panel=document.createElement('section'); panel.id='drivePanel'; panel.className='panel'; panel.hidden=true; panel.setAttribute('aria-label','Drive a vehicle');
 panel.innerHTML='<h2>Ride around the valley <small class="k">F get in / out</small></h2><div id="driveGrid">'+
   [['car','Car'],['moto','Motorbike'],['bike','Bicycle'],['heli','Helicopter'],['plane','Airplane']].map(([k,l])=>`<button class="simT" data-veh="${k}" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICON[k]}</svg>${l}</button>`).join('')+
-  '</div><div class="row"><button id="drvHorn">Horn</button><button id="drvCam">Camera</button><button id="drvExit">Get out</button></div>'+
+  '</div><div class="row"><button id="drvHorn">Horn</button><button id="drvCam">Camera</button><button id="drvExit">Get out</button></div><div class="row" id="drvFullRow" hidden><button id="drvFull" aria-pressed="false" title="Load every building in the 30 km circle (heavy: for fast devices; reload the page if it struggles)">Full city: off</button></div>'+
   '<p class="k">W / ↑ go · S / ↓ brake &amp; reverse · A D steer · Space handbrake · Shift boost · H horn · V camera · drag to look · scroll to zoom</p>'+
   '<p class="k">Helicopter: W / S forward &amp; back · A D turn · Space climb · C descend · Shift fast</p>'+
   '<p class="k">Airplane (starts at Tribhuvan, runway 02): Space / C throttle · W / S nose up &amp; down (S brakes on the ground) · A D bank · Shift full power</p>'+
@@ -3548,7 +3561,10 @@ panel.querySelectorAll('[data-veh]').forEach(b=>b.addEventListener('click', ()=>
 document.getElementById('drvHorn').addEventListener('click', ()=>horn());
 document.getElementById('drvCam').addEventListener('click', ()=>{ DRV.fp=!DRV.fp; showToast(DRV.fp?'Driver\'s view':'Chase camera'); });
 document.getElementById('drvExit').addEventListener('click', ()=>{ if(DRV.driving) driveExit(false); });
-function syncUI(){ panel.querySelectorAll('[data-veh]').forEach(b=>b.setAttribute('aria-pressed', (DRV.driving && b.dataset.veh===DRV.type)?'true':'false'));
+document.getElementById('drvFull').addEventListener('click', ()=>{ const on=!VAL.full(); VAL.setFull(on); const b=document.getElementById('drvFull'); b.textContent='Full city: '+(on?'on':'off'); b.setAttribute('aria-pressed',on?'true':'false');
+  showToast(on?'Full city: every building in the valley loads while you fly (heavy — reload if it struggles)':'Full city off: normal draw distance'); });
+function syncUI(){ { const r=document.getElementById('drvFullRow'); if(r) r.hidden=!(DRV.driving && (DRV.type==='heli'||DRV.type==='plane')); }
+  panel.querySelectorAll('[data-veh]').forEach(b=>b.setAttribute('aria-pressed', (DRV.driving && b.dataset.veh===DRV.type)?'true':'false'));
   btnDrive.setAttribute('aria-pressed', (!panel.hidden||DRV.driving)?'true':'false'); }
 addEventListener('keydown', e=>{
   if(e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -3616,11 +3632,23 @@ function sndInit(){ if(S.ok || !AUD.ctx) return; S.ok=true; const c=AUD.ctx;
   const road=c.createBufferSource(); road.buffer=AUD.noise; road.loop=true; const rl=c.createBiquadFilter(); rl.type='lowpass'; rl.frequency.value=260; const rg=c.createGain(); rg.gain.value=0; road.connect(rl); rl.connect(rg); rg.connect(AUD.master); road.start(0,0.7); S.rg=rg;
   const chop=c.createBufferSource(); chop.buffer=AUD.noise; chop.loop=true; const cl=c.createBiquadFilter(); cl.type='lowpass'; cl.frequency.value=420;
   const vca=c.createGain(); vca.gain.value=0.45; const lfo=c.createOscillator(); lfo.type='triangle'; lfo.frequency.value=5; const depth=c.createGain(); depth.gain.value=0.45; lfo.connect(depth); depth.connect(vca.gain);
-  const hg=c.createGain(); hg.gain.value=0; chop.connect(cl); cl.connect(vca); vca.connect(hg); hg.connect(AUD.master); chop.start(0,1.1); lfo.start(); Object.assign(S,{hg,lfo}); }
-function sndStop(){ if(!S.ok) return; const n=AUD.ctx.currentTime; S.hg.gain.setTargetAtTime(0,n,0.6); S.g.gain.setTargetAtTime(0,n,0.15); S.tg.gain.setTargetAtTime(0,n,0.1); S.rg.gain.setTargetAtTime(0,n,0.1); }
+  const hg=c.createGain(); hg.gain.value=0; chop.connect(cl); cl.connect(vca); vca.connect(hg); hg.connect(AUD.master); chop.start(0,1.1); lfo.start(); Object.assign(S,{hg,lfo});
+  // airplane (twin turboprop): turbine whine + propeller buzz + air roar, all scaled by throttle and airspeed
+  const pw=c.createOscillator(); pw.type='sine'; pw.frequency.value=1400; const pwg=c.createGain(); pwg.gain.value=0; pw.connect(pwg);
+  const pb=c.createOscillator(); pb.type='sawtooth'; pb.frequency.value=60; const pbl=c.createBiquadFilter(); pbl.type='lowpass'; pbl.frequency.value=700; const pbg=c.createGain(); pbg.gain.value=0; pb.connect(pbl); pbl.connect(pbg);
+  const air=c.createBufferSource(); air.buffer=AUD.noise; air.loop=true; const al=c.createBiquadFilter(); al.type='lowpass'; al.frequency.value=500; const ag=c.createGain(); ag.gain.value=0; air.connect(al); al.connect(ag);
+  const pg=c.createGain(); pg.gain.value=0; pwg.connect(pg); pbg.connect(pg); ag.connect(pg); pg.connect(AUD.master); pw.start(); pb.start(); air.start(0,2.3);
+  Object.assign(S,{pg,pw,pwg,pb,pbl,pbg,al,ag}); }
+function sndStop(){ if(!S.ok) return; const n=AUD.ctx.currentTime; S.hg.gain.setTargetAtTime(0,n,0.6); S.pg.gain.setTargetAtTime(0,n,0.8); S.g.gain.setTargetAtTime(0,n,0.15); S.tg.gain.setTargetAtTime(0,n,0.1); S.rg.gain.setTargetAtTime(0,n,0.1); }
 function sndUpdate(dt, thr){ if(!AUD.on||!AUD.ctx) return; sndInit(); DRV.sndT+=dt; if(DRV.sndT<0.05) return; DRV.sndT=0; const n=AUD.ctx.currentTime, sp=Math.abs(DRV.v);
   if(DRV.type==='car'){ const f=34+sp*5.5+thr*10; S.o1.frequency.setTargetAtTime(f,n,0.08); S.o2.frequency.setTargetAtTime(f/2,n,0.08); S.lp.frequency.setTargetAtTime(380+thr*500+sp*20,n,0.1); S.g.gain.setTargetAtTime(0.05+thr*0.07,n,0.1); S.tg.gain.setTargetAtTime(0,n,0.1); }
   else if(DRV.type==='moto'){ const f=62+sp*9+thr*24; S.o1.frequency.setTargetAtTime(f,n,0.05); S.o2.frequency.setTargetAtTime(f/2,n,0.05); S.lp.frequency.setTargetAtTime(700+thr*1300,n,0.08); S.g.gain.setTargetAtTime(0.05+thr*0.09,n,0.08); S.tg.gain.setTargetAtTime(0,n,0.1); }
+  if(DRV.type!=='plane') S.pg.gain.setTargetAtTime(0,n,0.3);
+  if(DRV.type==='plane'){ const t=Math.max(0,Math.min(1,thr||0)), k=Math.min(1,sp/90);
+    S.pg.gain.setTargetAtTime(1,n,0.3); S.pw.frequency.setTargetAtTime(1300+t*1500+k*300,n,0.4); S.pwg.gain.setTargetAtTime(0.012+t*0.03,n,0.3);
+    S.pb.frequency.setTargetAtTime(38+t*42,n,0.4); S.pbl.frequency.setTargetAtTime(380+t*700,n,0.3); S.pbg.gain.setTargetAtTime(0.03+t*0.09,n,0.3);
+    S.al.frequency.setTargetAtTime(350+k*1400,n,0.4); S.ag.gain.setTargetAtTime(0.02+t*0.12+k*0.1,n,0.3);
+    S.g.gain.setTargetAtTime(0,n,0.2); S.hg.gain.setTargetAtTime(0,n,0.3); S.tg.gain.setTargetAtTime(0,n,0.1); S.rg.gain.setTargetAtTime(0,n,0.2); return; }
   else if(DRV.type==='heli'){ const r=DRV.rotor||0; S.lfo.frequency.setTargetAtTime(2+r*4.2,n,0.2); S.hg.gain.setTargetAtTime(r*0.32,n,0.2); S.o1.frequency.setTargetAtTime(160+r*140+thr*30,n,0.2); S.o2.frequency.setTargetAtTime(80+r*70,n,0.2); S.lp.frequency.setTargetAtTime(900,n,0.2); S.g.gain.setTargetAtTime(r*0.025,n,0.2); S.tg.gain.setTargetAtTime(0,n,0.1); S.rg.gain.setTargetAtTime(0,n,0.2); return; }
   else { S.g.gain.setTargetAtTime(0,n,0.1); S.tg.gain.setTargetAtTime(thr<0.1 && sp>1 ? 0.04 : 0, n, 0.05); }
   S.rg.gain.setTargetAtTime(Math.min(0.12, sp*0.008), n, 0.2); }
@@ -3913,7 +3941,6 @@ const og=ovCanvas.getContext('2d', {willReadFrequently:true});
       let sh=1+Math.max(-0.22,Math.min(0.22,hl/LS*0.9));
       let r=c[0], g=c[1], b=c[2];
       if(k===0){ const t=n; r=150*(1-t)+112*t; g=132*(1-t)+130*t; b=96*(1-t)+78*t; }        // fields: brick-brown to green
-      if(k===4 && n>0.56){ const f=Math.min(1,(n-0.56)*4)*0.6; r=r*(1-f)+70*f; g=g*(1-f)+100*f; b=b*(1-f)+54*f; }   // yards and garden trees between houses
       if(h>650 && k!==8){ const f=Math.min(1,(h-650)/700)*0.55; r=r*(1-f)+48*f; g=g*(1-f)+66*f; b=b*(1-f)+40*f; }   // higher rim: greener, darker
       const v=0.9+0.2*n; const o=(j*LN+i)*4; d[o]=r*sh*v; d[o+1]=g*sh*v; d[o+2]=b*sh*v; d[o+3]=255; } }
   bg.putImageData(img,0,0); og.imageSmoothingEnabled=true; og.drawImage(base,0,0,OV,OV); }
@@ -4325,7 +4352,7 @@ function buildTrees(t, T, far){
   const ox=X0+(t%NT)*TILE, oz=Z0+Math.floor(t/NT)*TILE; const r=rng(t*7919+13); const pts=[];
   const cap=Math.round((far?(MOBILE?200:420):(MOBILE?240:600))*Math.min(1.5,QUAL));
   for(let k=0;k<cap*3 && pts.length<cap;k++){ const x=ox+r()*TILE, z=oz+r()*TILE; const c=lcAt(x,z);
-    const p = c===1?0.9 : c===9?0.25 : c===7?0.4 : c===2?0.2 : c===3?0.06 : c===0?0.08 : c===4?0.16 : c===5||c===6?0.05 : 0;
+    const p = c===1?0.9 : c===9?0.25 : c===7?0.4 : c===2?0.2 : c===3?0.06 : c===0?0.08 : c===4?0.06 : c===5||c===6?0.02 : 0;   // the city itself is mostly brick and concrete; green is on the hills, parks and fields
     if(r()>p) continue; if(inBoudha(x,z) || onAirfield(x,z) || (SWC && Math.hypot(x-SWC[0],z-SWC[1])<46)) continue;
     if(!T.occ) T.occ=tileOcc(t); const a=Math.floor((x-ox)/5), b=Math.floor((z-oz)/5); if(T.occ[b*96+a]) continue;
     if(!T.rg) T.rg=tileRoadGrid(t); if(T.rg[b*96+a]) continue;
@@ -4835,7 +4862,7 @@ function wantedTiles(x,z,R,fx,fz){ const out=[]; const tx=Math.floor((x-X0)/TILE
 const STATS={tile:0,nt:0,far:0,nf:0,near:0,nn:0,tree:0,ntr:0};
 // adaptive quality: a phone or laptop that holds ~60 fps gets a wider streaming radius (buildings, roads, trees appear farther out);
 // one that struggles drops back. Starts at 1 (the tuned phone / desktop budgets) and moves in small steps every 2.5 s.
-let QUAL=1, qAcc=0, qN=0, qWarm=0;
+let QUAL=1, qAcc=0, qN=0, qWarm=0, FULL=false;   // FULL: the plane/heli 'Full city' switch — stream every tile in the circle
 function adaptQuality(dt){ if(!(dt>0) || dt>0.25) return; qWarm+=dt; if(qWarm<6) return; qAcc+=dt; qN++; if(qAcc<2.5) return;
   const avg=qAcc/qN; qAcc=0; qN=0; const max=MOBILE?1.9:1.7;
   if(avg<1/52) QUAL=Math.min(max,QUAL+0.1); else if(avg>1/36) QUAL=Math.max(0.7,QUAL-0.15); STATS.qual=QUAL; }
@@ -4848,11 +4875,11 @@ function stream(x,z,camY,budget){
   camera.getWorldDirection(_fwd); let fx=_fwd.x, fz=_fwd.z; const fl=Math.hypot(fx,fz)||1; fx/=fl; fz/=fl;
   const agl=Math.max(0,camY-gy(x,z)), flying = mode==='drive' && (DRV.type==='heli'||DRV.type==='plane');
   const base = mode==='drive' ? (flying? (MOBILE?800:1600) : (MOBILE?700:1300)) : (MOBILE?600:1100);
-  const R=Math.min((MOBILE?1700:4200)*QUAL, (base + agl*(MOBILE?1.5:3.2))*QUAL); tileR=R;
-  const treeR=(MOBILE?600:900)*Math.min(QUAL,1.4), NEAR_R=(MOBILE?420:700)*Math.min(QUAL,1.3), ROAD_R=(MOBILE?650:1100)*QUAL, farTreeR=Math.min(R,(MOBILE?1300:2400)*QUAL);
-  if(Math.hypot(ax-lastCX,az-lastCZ)>40 || Math.abs(R-(stream.lastR||0))>150 || (stream.fdot=(stream.fx||0)*fx+(stream.fz||0)*fz)<0.9){ lastCX=ax; lastCZ=az; stream.lastR=R; stream.fx=fx; stream.fz=fz; queue=wantedTiles(ax,az,R,fx,fz);
+  const R=(FULL&&flying) ? RAD*1.12 : Math.min((MOBILE?1700:4200)*QUAL, (base + agl*(MOBILE?1.5:3.2))*QUAL); tileR=R;
+  const treeR=(MOBILE?600:900)*Math.min(QUAL,1.4), NEAR_R=(MOBILE?420:700)*Math.min(QUAL,1.3), ROAD_R=(MOBILE?650:1100)*QUAL, farTreeR=Math.min(R,(MOBILE?1300:2400)*QUAL*((FULL&&flying)?1.6:1));
+  if(Math.hypot(ax-lastCX,az-lastCZ)>((FULL&&flying)?400:40) || Math.abs(R-(stream.lastR||0))>150 || (stream.fdot=(stream.fx||0)*fx+(stream.fz||0)*fz)<0.9){ lastCX=ax; lastCZ=az; stream.lastR=R; stream.fx=fx; stream.fz=fz; queue=wantedTiles(ax,az,R,fx,fz);
     const keep=new Set(wantedTiles(x,z,R*1.2+TILE).map(p=>p[0])); for(const q of queue) keep.add(q[0]); for(const [t,T] of TILES){ if(!keep.has(t)){ disposeTile(T); TILES.delete(t); } } }
-  const t0=performance.now(), B=flying?budget*1.6:budget;
+  const t0=performance.now(), B=flying?budget*((FULL)?3:1.6):budget;
   // pass 1: every wanted tile gets plain boxes + simple road strips right away (cheap)
   for(const [t] of queue){ if(performance.now()-t0>B*0.75) break; if(TILES.has(t)) continue;
     const q0=performance.now(); const T=buildTile(t,false); T.bld=buildBld(t,0); T.lod=0; TILES.set(t,T); STATS.tile+=performance.now()-q0; STATS.nt++; }
@@ -4912,7 +4939,7 @@ function update(dt){
   sky.position.copy(camera.position);
   riverN.offset.x-=dt*0.045; riverN.offset.y+=dt*0.006;
   stars.position.copy(camera.position);                            // night sky + aurora travel with you (they were a 1.3 km dome over Boudha)
-  if(aurora && aurora.position) aurora.position.set(cx, gy(cx,cz), cz);
+  if(aurora && aurora.position) aurora.position.copy(camera.position);   // a sky object: drawn at infinity, so it stays high in the sky wherever you fly
   const agl=cy-gy(cx,cz); const nr = mode==='drive'&&(DRV.type==='heli'||DRV.type==='plane') ? Math.min(2.0, Math.max(0.12, (agl-8)*0.01)) : (agl>30?Math.min(1.5,agl*0.01):0.08);
   if(Math.abs(camera.near-nr)>0.02){ camera.near=nr; camera.updateProjectionMatrix(); }
   // labels: fade in with distance, hide near and very far
@@ -5132,7 +5159,7 @@ function orbitCenter(x,z){
   return {x, y:gy(x,z), z, look:5, r:80, h:34, name:''}; }
 let firstStream=true;
 camera.far=150000; camera.updateProjectionMatrix();
-return {orbitCenter, stats:STATS, wanted:()=>queue.length, lm:LM_TOPS, dhara:DHARA, vpeople:VPEO, eyeY, walkK, waterInfo, bldAt, bldsNear, gy, inCircle, inBoudha, collides:collidesV, roofY, roadsNear, minimap, update, stream, X0, Z0, SPAN, E0:VM.E0, DATUM:VM.DATUM, CX, CZ, RAD, TILES, ovCanvas, runway:()=>VALLEY.runway, meta:VM};
+return {setFull:(on)=>{ FULL=!!on; lastCX=1e9; }, full:()=>FULL, orbitCenter, stats:STATS, wanted:()=>queue.length, lm:LM_TOPS, dhara:DHARA, vpeople:VPEO, eyeY, walkK, waterInfo, bldAt, bldsNear, gy, inCircle, inBoudha, collides:collidesV, roofY, roadsNear, minimap, update, stream, X0, Z0, SPAN, E0:VM.E0, DATUM:VM.DATUM, CX, CZ, RAD, TILES, ovCanvas, runway:()=>VALLEY.runway, meta:VM};
 })();
 function GY(x,z){ return VAL.gy(x,z); }
 
