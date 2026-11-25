@@ -4315,7 +4315,7 @@ function buildTrees(t, T){
   const cap=MOBILE?240:600;
   for(let k=0;k<cap*3 && pts.length<cap;k++){ const x=ox+r()*TILE, z=oz+r()*TILE; const c=lcAt(x,z);
     const p = c===1?0.9 : c===9?0.25 : c===7?0.12 : c===2?0.1 : c===3?0.03 : c===0?0.04 : c===4?0.03 : 0;
-    if(r()>p) continue; if(inBoudha(x,z) || onAirfield(x,z)) continue;
+    if(r()>p) continue; if(inBoudha(x,z) || onAirfield(x,z) || (SWC && Math.hypot(x-SWC[0],z-SWC[1])<46)) continue;
     if(!T.occ) T.occ=tileOcc(t); const a=Math.floor((x-ox)/5), b=Math.floor((z-oz)/5); if(T.occ[b*96+a]) continue;
     if(!T.rg) T.rg=tileRoadGrid(t); if(T.rg[b*96+a]) continue;
     const y=gy(x,z), pine = c===1 && y+VM.E0>1800-470 && r()<0.75;   // pines on the forested rim above ~1,800 m
@@ -4376,6 +4376,7 @@ function bMesh(B, mat){ if(!B.n) return null; const g=new THREE.BufferGeometry()
     let cx=0,cz=0; for(const q of ring){ cx+=q[0]; cz+=q[1]; } cx/=ring.length; cz/=ring.length;
     if(DHARA && Math.hypot(cx-DHARA[0],cz-DHARA[1])<22) continue;          // Dharahara: rebuilt 72 m tower is hand-built below
     if(GEN.some(r=>pointInPoly(cx,cz,r))) continue;                           // replaced by a hand-built form
+    if(SWC && (Math.hypot(cx-SWC[0],cz-SWC[1])<16 || (p.h===20 && p.mh===0 && Math.hypot(cx-SWC[0],cz-SWC[1])<26))) continue;   // Swayambhu: detailed model below
     const key=Math.floor(cx/1500)+','+Math.floor(cz/1500); let B=buckets.get(key); if(!B){ B=geoBucket(); buckets.set(key,B); } let G=gb.get(key); if(!G){ G=geoBucket(); gb.set(key,G); }
     const base=gy(Math.round(cx/30)*30, Math.round(cz/30)*30);
     let cw=parseCol(p.bc, p.mh<2.5&&p.h<4?HC.plinth:HC.brick), cr=parseCol(p.rc, HC.tile);
@@ -4457,6 +4458,135 @@ if(DHARA){ const [cx,cz]=DHARA, b=gy(cx,cz); const W=HC.white;
   hbBox(HB,cx+9,cz+2,22,6,b+2.6,b+2.9,toLin(170,174,176),0.3); hbBox(HB,cx-9,cz-2,22,6,b+2.6,b+2.9,toLin(170,174,176),0.3);
   addLM('Dakshinkali',b+5.4,cx,cz,5); }
 bMesh(HB,hMat); bMesh(HG,gilt);
+
+/* ---------------- SWAYAMBHUNATH — detailed model. Heights and footprints from its OSM 3D parts (dome r 13.4 m to 12 m,
+   harmika 11.6–15.1, cloth band to 16, gilt gables 16–19, 13 rings 18–30, umbrella 26–28, finial to 33; shikharas 20 m),
+   look from the pack's Wikimedia photos and Google Maps photos viewed by eye (Jun 2024). Nothing is copied. ---------------- */
+const SWAYM={monkeys:null};
+if(SWC){
+  const [sx,sz]=SWC, b=gy(sx,sz), B=geoBucket(), G=geoBucket(), S3=new THREE.Group(); S3.name='swayambhu'; heritageGroup.add(S3);
+  const RD0=13.4, white=HC.white, green=toLin(34,120,86), red=toLin(176,34,30), copper=toLin(170,96,54), stone=toLin(150,146,138);
+  // stone paving of the hilltop platform
+  { const R=44, st=3, n=Math.ceil(R/st), pos=[], uv=[], idx=[], id=new Map(); let k=0;
+    for(let j=-n;j<=n;j++) for(let i=-n;i<=n;i++){ if(Math.hypot(i,j)*st>R+st) continue; const x=sx+i*st, z=sz+j*st; id.set(i+','+j,k++); pos.push(x, Math.max(gy(x,z),b)+0.06, z); uv.push(x/2.4, z/2.4); }
+    for(let j=-n;j<n;j++) for(let i=-n;i<n;i++){ const a=id.get(i+','+j), c=id.get((i+1)+','+j), d=id.get(i+','+(j+1)), e=id.get((i+1)+','+(j+1)); if([a,c,d,e].some(v=>v===undefined)) continue; idx.push(a,d,c, c,d,e); }
+    const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3)); g.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2)); g.setIndex(idx); g.computeVertexNormals();
+    const m=patchMaterial(new THREE.MeshStandardMaterial({map:TEX.slate, normalMap:TEX.slateN, color:0xb8b2a8, roughness:0.95, polygonOffset:true, polygonOffsetFactor:-2, polygonOffsetUnits:-4}),{wet:0.7});
+    const pm=new THREE.Mesh(g,m); pm.receiveShadow=true; S3.add(pm); }
+  // base wall ring (prayer wheels sit in it) and the great white dome
+  hbCyl(B,sx,sz,RD0+0.9,RD0+0.9,b-0.5,b+1.4,white,72); hbCyl(B,sx,sz,RD0+0.9,RD0+0.2,b+1.4,b+1.55,toLin(200,196,188),72);
+  const prof=[]; for(let i=0;i<=40;i++){ const t=i/40*Math.PI/2; prof.push(new THREE.Vector2(Math.max(0.001,RD0*Math.cos(t)), b+1.4+(11.6-1.4)*Math.sin(t))); }
+  const swDome=canvasTex(2048,512,(g,w,h)=>{ const n=makeNoise(57); const img=g.createImageData(w,h), d=img.data;
+    for(let y=0;y<h;y++) for(let x=0;x<w;x++){ const i=(y*w+x)*4, f=fbm(n,x/w*48,y/h*12,3,48,12), k=0.93+(f-0.5)*0.08; d[i]=250*k; d[i+1]=247*k; d[i+2]=238*k; d[i+3]=255; }
+    g.putImageData(img,0,0);
+    const N=16; for(let p=0;p<N;p++){ const x0=p/N*w, x1=(p+1)/N*w, mid=(x0+x1)/2, dep=h*0.66;      // canvas top = top of the dome; scallops hang about half way down
+      g.fillStyle='rgba(236,168,40,0.92)'; g.beginPath(); g.moveTo(x0,0); g.lineTo(x0,dep*0.55); g.bezierCurveTo(x0+6,dep*0.95,mid-40,dep,mid,dep); g.bezierCurveTo(mid+40,dep,x1-6,dep*0.95,x1,dep*0.55); g.lineTo(x1,0); g.fill();
+      g.strokeStyle='rgba(190,110,20,0.85)'; g.lineWidth=6; g.beginPath(); g.moveTo(x0,dep*0.55); g.bezierCurveTo(x0+6,dep*0.95,mid-40,dep,mid,dep); g.bezierCurveTo(mid+40,dep,x1-6,dep*0.95,x1,dep*0.55); g.stroke();
+      g.fillStyle='rgba(250,246,236,0.95)'; g.beginPath(); g.ellipse(mid,dep*0.5,(x1-x0)*0.26,dep*0.22,0,0,7); g.fill();   // white petal centre
+      for(let k=0;k<5;k++){ const dx=mid+(hash(p*7+k)-0.5)*80, len=10+hash(p*5+k)*40; const gr=g.createLinearGradient(0,dep,0,dep+len); gr.addColorStop(0,'rgba(230,160,50,0.5)'); gr.addColorStop(1,'rgba(230,160,50,0)'); g.fillStyle=gr; g.fillRect(dx,dep,3,len); } }
+    g.fillStyle='rgba(236,168,40,0.95)'; g.fillRect(0,0,w,h*0.05);
+    const gb=g.createLinearGradient(0,h-36,0,h); gb.addColorStop(0,'rgba(120,110,95,0)'); gb.addColorStop(1,'rgba(120,110,95,0.3)'); g.fillStyle=gb; g.fillRect(0,h-36,w,36); });
+  swDome.wrapS=THREE.RepeatWrapping;
+  const domeMat=new THREE.MeshStandardMaterial({color:0xffffff, map:swDome, normalMap:rep(TEX.plasterN,14,3), normalScale:new THREE.Vector2(0.4,0.4), roughness:0.9});
+  const dome=new THREE.Mesh(new THREE.LatheGeometry(prof,128), domeMat); dome.position.set(sx,0,sz); dome.castShadow=dome.receiveShadow=true; S3.add(dome);
+  // green painted band, the gilt harmika with the eyes, red cloth band
+  const sq=(w,y0,y1,c,Bk)=>hbBox(Bk||B,sx,sz,w,w,y0,y1,c,0);
+  sq(7.4,b+11.2,b+11.75,green);
+  const eyeMat=new THREE.MeshStandardMaterial({map:TEX.eyes, metalnessMap:TEX.eyesMR, roughnessMap:TEX.eyesMR, metalness:0.55, roughness:1, envMapIntensity:0.9, emissive:0x3a2608, emissiveIntensity:0.35});
+  const harm=new THREE.Mesh(new THREE.BoxGeometry(6.6,3.35,6.6), [eyeMat,eyeMat,M.gold,M.gold,eyeMat,eyeMat]); harm.position.set(sx,b+11.75+1.675,sz); harm.castShadow=true; S3.add(harm);
+  sq(7.0,b+15.1,b+15.25,HC.gold,G);
+  const sk=new THREE.Mesh(new THREE.CylinderGeometry(4.4,4.7,0.75,4,1,true), new THREE.MeshStandardMaterial({map:rep(TEX.clothSkirt,4,1), side:THREE.DoubleSide, roughness:0.85})); sk.position.set(sx,b+15.62,sz); sk.rotation.y=Math.PI/4; S3.add(sk);
+  // four gilt gable plates (toranas) at the foot of the spire, one facing each way
+  for(let k=0;k<4;k++){ const a=k*Math.PI/2, ox=Math.sin(a)*2.55, oz=Math.cos(a)*2.55, sh=new THREE.Shape(); sh.moveTo(-1.9,0); sh.lineTo(1.9,0); sh.lineTo(1.6,1.4); sh.quadraticCurveTo(0.5,2.2,0,3.2); sh.quadraticCurveTo(-0.5,2.2,-1.6,1.4); sh.closePath();
+    const g=new THREE.ExtrudeGeometry(sh,{depth:0.25,bevelEnabled:false}); const m=new THREE.Mesh(g,M.gold); m.position.set(sx+ox,b+16.0,sz+oz); m.rotation.y=a; m.castShadow=true; S3.add(m); }
+  hbCyl(G,sx,sz,2.9,2.7,b+16.0,b+18.0,HC.gold,24);
+  // the thirteen gilt rings (Trayodashabhuvana), round and tapering
+  const rings=[]; for(let i=0;i<13;i++){ const f=i/12, r0=3.25-f*1.9, y0=b+18.0+i*0.63;
+    rings.push([new THREE.CylinderGeometry(r0-0.05,r0,0.46,28).translate(sx,y0+0.23,sz),[1,1,1]]); rings.push([new THREE.CylinderGeometry(r0-0.3,r0-0.3,0.17,28).translate(sx,y0+0.545,sz),[0.45,0.36,0.24]]); }
+  const rm=new THREE.Mesh(mergeVC(rings), M.goldV); rm.castShadow=true; S3.add(rm);
+  // chhatra (umbrella) with its fringe, and the finial to 33 m
+  const um=[[0.3,26.2],[1.2,26.3],[2.05,26.75],[2.08,26.95],[1.0,27.6],[0.5,28.0]].map(q=>new THREE.Vector2(q[0],b+q[1]));
+  const umb=new THREE.Mesh(new THREE.LatheGeometry(um,32), M.gold); umb.position.set(sx,0,sz); umb.castShadow=true; S3.add(umb);
+  const fr=new THREE.Mesh(new THREE.CylinderGeometry(2.07,2.07,0.55,32,1,true), new THREE.MeshStandardMaterial({map:rep(TEX.clothSkirt,5,1), side:THREE.DoubleSide, roughness:0.85})); fr.position.set(sx,b+26.5,sz); S3.add(fr);
+  const gj=[[0.5,28.0],[0.62,28.3],[0.4,28.7],[0.7,29.4],[0.75,30.1],[0.5,30.7],[0.25,31.1],[0.42,31.6],[0.2,32.2],[0.1,32.7],[0.001,33.0]].map(q=>new THREE.Vector2(q[0],b+q[1]));
+  const fin=new THREE.Mesh(new THREE.LatheGeometry(gj,24), M.gold); fin.position.set(sx,0,sz); fin.castShadow=true; S3.add(fin);
+  // the five Dhyani Buddha shrines: gilt repoussé niches at E, S, W, N and Vairocana to the ESE; small Tara niches between
+  const shrine=(ang,big)=>{ const rr=RD0+0.75, cx=sx+Math.sin(ang)*rr, cz=sz+Math.cos(ang)*rr, w=big?2.5:1.4, h=big?2.3:1.4;
+    const parts=[], gold=[];
+    const base=new THREE.BoxGeometry(w+0.5,0.6,1.5); base.translate(0,0.3,0); parts.push(base);                     // white plinth
+    const body=new THREE.BoxGeometry(w,h,1.0); body.translate(0,0.6+h/2,0); gold.push(body);                        // gilt repoussé body
+    const ar=new THREE.Shape(); ar.moveTo(-w*0.62,0); ar.lineTo(w*0.62,0); ar.bezierCurveTo(w*0.62,h*0.5,w*0.2,h*0.55,0,h*0.9); ar.bezierCurveTo(-w*0.2,h*0.55,-w*0.62,h*0.5,-w*0.62,0);
+    const tym=new THREE.ExtrudeGeometry(ar,{depth:0.18,bevelEnabled:false}); tym.translate(0,0.6+h,0.32); gold.push(tym);   // arched torana
+    for(let k=0;k<2;k++){ const c=new THREE.ConeGeometry(w*(0.55-k*0.17),h*(0.28-k*0.06),4); c.rotateY(Math.PI/4); c.translate(0,0.6+h+h*(0.2+k*0.24),-0.15); gold.push(c); }
+    const fin=new THREE.ConeGeometry(0.08,0.5,6); fin.translate(0,0.6+h+h*0.75,-0.15); gold.push(fin);
+    const tidy=(g)=>{ g.deleteAttribute('uv'); return g.index?g.toNonIndexed():g; };
+    const gm=new THREE.Mesh(BGU.mergeGeometries(gold.map(tidy)), M.gold), wm=new THREE.Mesh(BGU.mergeGeometries(parts.map(tidy)), M.white);
+    for(const m of [gm,wm]){ m.position.set(cx,b,cz); m.rotation.y=ang; m.castShadow=true; S3.add(m); }
+    const nic=new THREE.BoxGeometry(w*0.55,h*0.62,0.12); nic.translate(0,0.6+h*0.45,0.52); const niche=new THREE.Mesh(nic, new THREE.MeshStandardMaterial({color:0x24170e, roughness:0.85})); niche.position.set(cx,b,cz); niche.rotation.y=ang; S3.add(niche);
+    const bud=new THREE.SphereGeometry(w*0.13,10,8); bud.translate(0,0.6+h*0.42,0.5); const bm=new THREE.Mesh(bud, M.gold); bm.position.set(cx,b,cz); bm.rotation.y=ang; S3.add(bm); };
+  for(const a of [Math.PI/2, 0, -Math.PI/2, Math.PI]) shrine(a,true); shrine(Math.PI/2-0.32,true);
+  for(const a of [Math.PI/4, 3*Math.PI/4, -Math.PI/4, -3*Math.PI/4]) shrine(a,false);
+  // a ring of prayer wheels in the base wall
+  { const pts=[]; for(let k=0;k<96;k++){ const a=k/96*Math.PI*2; if([Math.PI/2,Math.PI/2-0.32,0,-Math.PI/2,Math.PI,Math.PI*1.5].some(s2=>{ let d=Math.abs(((a-s2)%(Math.PI*2)+Math.PI*3)%(Math.PI*2)-Math.PI); return d<0.17; })) continue; pts.push(a); }
+    const wg=mergeVC([[new THREE.CylinderGeometry(0.17,0.17,0.48,10).translate(0,0.24,0),[1,1,1]],[new THREE.CylinderGeometry(0.175,0.175,0.07,10).translate(0,0.3,0),[0.6,0.12,0.1]],[new THREE.CylinderGeometry(0.03,0.03,0.7,4).translate(0,0.25,0),[0.3,0.3,0.3]]]);
+    const im=new THREE.InstancedMesh(wg, new THREE.MeshStandardMaterial({vertexColors:true, color:0xc98a4a, metalness:0.7, roughness:0.4}), pts.length), d=new THREE.Object3D();
+    pts.forEach((a,i)=>{ d.position.set(sx+Math.sin(a)*(RD0+1.05), b+0.45, sz+Math.cos(a)*(RD0+1.05)); d.rotation.set(0,a,0); d.scale.setScalar(1); d.updateMatrix(); im.setMatrixAt(i,d.matrix); });
+    im.castShadow=true; S3.add(im); }
+  // Pratappur and Anantapur: the two white shikharas east of the stupa (OSM: 20 m), gilt tops
+  const shik=(ox,oz)=>{ const cx=sx+ox, cz=sz+oz, g0=Math.max(gy(cx,cz),b); hbBox(B,cx,cz,5.6,5.6,g0-0.5,g0+1.2,white,0); hbBox(B,cx,cz,4.6,4.6,g0+1.2,g0+5.2,white,0);
+    for(const [u,v] of [[-1,-1],[1,-1],[1,1],[-1,1]]){ hbCyl(B,cx+u*1.9,cz+v*1.9,0.55,0.25,g0+5.2,g0+9.0,white,8); hbCyl(G,cx+u*1.9,cz+v*1.9,0.12,0.04,g0+9.0,g0+9.8,HC.gold,6); }
+    hbCyl(B,cx,cz,2.1,0.85,g0+5.2,g0+16.0,white,8); hbCyl(B,cx,cz,0.95,0.95,g0+16.0,g0+16.6,white,8); hbCyl(G,cx,cz,1.0,0.35,g0+16.6,g0+18.4,HC.gold,8); hbCyl(G,cx,cz,0.3,0.05,g0+18.4,g0+20.0,HC.gold,8);
+    PARTCOLL.push({t:2,cx,cz,r:3,top:g0+20,minx:cx-3,maxx:cx+3,minz:cz-3,maxz:cz+3}); };
+  shik(18.6,-6.2); shik(9.2,19.3);
+  // the great Vajra (dorje) on its drum pedestal at the top of the east stairway
+  { const vx=sx+17.5, vz=sz+6.8, g0=Math.max(gy(vx,vz),b); hbCyl(B,vx,vz,2.2,2.2,g0-0.3,g0+0.5,stone,24); hbCyl(G,vx,vz,1.6,1.7,g0+0.5,g0+1.5,toLin(150,112,60),24);
+    const vg=[]; for(const sd of [-1,1]){ const L=[[0.001,0],[0.34,0.15],[0.45,0.45],[0.32,0.8],[0.16,1.05],[0.12,1.35],[0.001,1.6]].map(q=>new THREE.Vector2(q[0],q[1])); const lg=new THREE.LatheGeometry(L,16); lg.rotateZ(sd*Math.PI/2); lg.translate(-sd*0.2,0,0); vg.push(lg); }
+    vg.push(new THREE.SphereGeometry(0.32,16,10)); const vm=new THREE.Mesh(BGU.mergeGeometries(vg.map(g=>{ g.deleteAttribute('uv'); return g.index?g.toNonIndexed():g; })), M.gold); vm.position.set(vx,g0+1.95,vz); vm.rotation.y=0.25; vm.castShadow=true; S3.add(vm);
+    PARTCOLL.push({t:2,cx:vx,cz:vz,r:2.3,top:g0+2.5,minx:vx-2.5,maxx:vx+2.5,minz:vz-2.5,maxz:vz+2.5}); }
+  // small votive chaityas around the platform
+  { const R=rng(31), spots=[]; for(let k=0;k<200 && spots.length<(MOBILE?26:44);k++){ const a=R()*6.283, rr=18+R()*22, x=sx+Math.sin(a)*rr, z=sz+Math.cos(a)*rr;
+      if(Math.hypot(x-(sx+17.5),z-(sz+6.8))<5 || Math.hypot(x-(sx+18.6),z-(sz-6.2))<5 || Math.hypot(x-(sx+9.2),z-(sz+19.3))<5) continue; if(itemsAt(x,z).some(it=>inItem(it,x,z,1.2))) continue; spots.push([x,z,1.2+R()*1.3,R()]); }
+    const im=new THREE.InstancedMesh(chortenGeo, new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.85}), spots.length), d=new THREE.Object3D(), c=new THREE.Color();
+    spots.forEach((q,i)=>{ d.position.set(q[0],Math.max(gy(q[0],q[1]),b),q[1]); d.scale.setScalar(q[2]); d.rotation.set(0,q[3]*6,0); d.updateMatrix(); im.setMatrixAt(i,d.matrix); im.setColorAt(i, q[3]<0.5?c.setRGB(0.92,0.9,0.86):c.setRGB(0.55,0.53,0.5)); PARTCOLL.push({t:2,cx:q[0],cz:q[1],r:0.7*q[2],top:b+q[2]*1.7,minx:q[0]-2,maxx:q[0]+2,minz:q[1]-2,maxz:q[1]+2}); });
+    im.castShadow=true; im.receiveShadow=true; S3.add(im); }
+  // prayer flags from the spire out to the platform's edge
+  { const pos=[], nor=[], uv=[], col=[], wind=[], idx=[]; let v=0; const R=rng(77);
+    const string=(p0,p1)=>{ const L=p0.distanceTo(p1), n=Math.floor(L/(MOBILE?0.75:0.6)), sag=0.03*L; const at=(f)=>new THREE.Vector3(p0.x+(p1.x-p0.x)*f, p0.y+(p1.y-p0.y)*f-Math.sin(f*Math.PI)*sag, p0.z+(p1.z-p0.z)*f);
+      const hz=new THREE.Vector3(p1.x-p0.x,0,p1.z-p0.z).normalize(), nrm=new THREE.Vector3(-hz.z,0,hz.x), ci=Math.floor(R()*5);
+      for(let k=0;k<n;k++){ const f=(k+0.5)/n, a=at(f-0.21/L), c2=at(f+0.21/L), C=FLAG_COLS[(ci+k)%5], ph=f*L*0.6+R()*0.6;
+        for(const q of [[a.x,a.y,a.z,0,1,0],[c2.x,c2.y,c2.z,1,1,0],[c2.x,c2.y-0.48,c2.z,1,0,1],[a.x,a.y-0.48,a.z,0,0,1]]){ pos.push(q[0],q[1],q[2]); nor.push(nrm.x,nrm.y,nrm.z); uv.push(q[3],q[4]); col.push(C[0],C[1],C[2]); wind.push(q[5],ph); }
+        idx.push(v,v+2,v+1, v,v+3,v+2); v+=4; } };
+    const N=MOBILE?22:36; for(let i=0;i<N;i++){ const a=i/N*Math.PI*2, top=new THREE.Vector3(sx+Math.sin(a)*1.0, b+26.3, sz+Math.cos(a)*1.0), rr=30+R()*12, ex=sx+Math.sin(a)*rr, ez=sz+Math.cos(a)*rr; string(top, new THREE.Vector3(ex, Math.max(gy(ex,ez),b)+5+R()*3, ez)); }
+    const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3)); g.setAttribute('normal',new THREE.Float32BufferAttribute(nor,3)); g.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2)); g.setAttribute('color',new THREE.Float32BufferAttribute(col,3)); g.setAttribute('aWind',new THREE.Float32BufferAttribute(wind,2)); g.setIndex(idx); g.computeBoundingSphere();
+    const fm=patchMaterial(new THREE.MeshStandardMaterial({map:TEX.flag, vertexColors:true, side:THREE.DoubleSide, roughness:0.85}), {flag:true}); S3.add(new THREE.Mesh(g,fm)); }
+  // the long eastern stairway (built by Pratap Malla): stone steps down the hill along OSM's steps, else straight east
+  { let best=null; for(const r of RD.roads){ if(r.c!==10 || r.n<2) continue; let near=1e9, far=0; for(let v=0;v<r.n;v++){ const x=RD.C[(r.s+v)*2]/2, z=RD.C[(r.s+v)*2+1]/2, d=Math.hypot(x-sx,z-sz); near=Math.min(near,d); far=Math.max(far,d); }
+      if(near<70 && far>90 && (!best || far>best.far)){ best={r,far}; } }
+    let path=[]; if(best){ for(let v=0;v<best.r.n;v++) path.push([RD.C[(best.r.s+v)*2]/2, RD.C[(best.r.s+v)*2+1]/2]); if(Math.hypot(path[0][0]-sx,path[0][1]-sz)>Math.hypot(path[path.length-1][0]-sx,path[path.length-1][1]-sz)) path.reverse(); }
+    else path=[[sx+22,sz+8],[sx+200,sz+30]];
+    const P2=[], W=5.2; let last=null;
+    for(let i=0;i<path.length-1;i++){ const [ax,az]=path[i], [bx,bz]=path[i+1], L=Math.hypot(bx-ax,bz-az), n=Math.max(1,Math.round(L/0.42));
+      for(let k=0;k<n;k++){ const f0=k/n, f1=(k+1)/n, x0=ax+(bx-ax)*f0, z0=az+(bz-az)*f0, x1=ax+(bx-ax)*f1, z1=az+(bz-az)*f1, y=Math.round(gy(x0,z0)/0.17)*0.17+0.05, nx=-(bz-az)/L*W/2, nz=(bx-ax)/L*W/2;
+        P2.push([x0+nx,y,z0+nz, x0-nx,y,z0-nz, x1-nx,y,z1-nz, x1+nx,y,z1+nz]); if(last!==null && Math.abs(last-y)>0.01) P2.push([x0+nx,last,z0+nz, x0-nx,last,z0-nz, x0-nx,y,z0-nz, x0+nx,y,z0+nz]); last=y; } }
+    const pos=[], idx=[]; P2.forEach((q,i)=>{ for(let k=0;k<12;k++) pos.push(q[k]); const o=i*4; idx.push(o,o+1,o+2, o,o+2,o+3, o,o+2,o+1, o,o+3,o+2); });
+    const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3)); g.setIndex(idx); g.computeVertexNormals();
+    const m=new THREE.Mesh(g, patchMaterial(new THREE.MeshStandardMaterial({color:0x8f8a80, roughness:0.95, polygonOffset:true, polygonOffsetFactor:-3, polygonOffsetUnits:-6}),{wet:0.5})); m.receiveShadow=true; S3.add(m); }
+  bMesh(B,hMat); bMesh(G,gilt);
+  PARTCOLL.push({t:2,cx:sx,cz:sz,r:RD0+1.0,top:b+33,minx:sx-RD0-1,maxx:sx+RD0+1,minz:sz-RD0-1,maxz:sz+RD0+1});
+  // the monkeys of the "Monkey Temple"
+  { const NMk=MOBILE?10:18, mg=mergeVC([[new THREE.SphereGeometry(0.22,8,6).scale(1,0.8,1.5).translate(0,0.42,0),[1,1,1]],[new THREE.SphereGeometry(0.13,8,6).translate(0,0.62,0.3),[1,1,1]],[new THREE.SphereGeometry(0.075,6,4).translate(0,0.6,0.42),[0.85,0.62,0.55]],
+      [new THREE.CylinderGeometry(0.04,0.03,0.6,5).rotateX(-0.9).translate(0,0.55,-0.5),[1,1,1]], ...[[0.12,0.18],[-0.12,0.18],[0.12,-0.18],[-0.12,-0.18]].map(([x,z])=>[new THREE.CylinderGeometry(0.045,0.04,0.34,5).translate(x,0.17,z),[1,1,1]])]);
+    const im=new THREE.InstancedMesh(mg, new THREE.MeshStandardMaterial({vertexColors:true, color:0x8a7a66, roughness:0.95}), NMk); im.castShadow=true; im.frustumCulled=false; S3.add(im);
+    const R=rng(9), MK=[]; for(let i=0;i<NMk;i++){ const a=R()*6.283, rr=16+R()*20; MK.push({x:sx+Math.sin(a)*rr, z:sz+Math.cos(a)*rr, tx:0, tz:0, wait:R()*4, yaw:R()*6, ph:R()*6, sc:0.8+R()*0.5}); }
+    SWAYM.monkeys={im, MK, sx, sz, b, R}; }
+}
+function updateMonkeys(dt){ const M2=SWAYM.monkeys; if(!M2) return; if(Math.hypot(camera.position.x-M2.sx, camera.position.z-M2.sz)>500) return;
+  const d=new THREE.Object3D();
+  M2.MK.forEach((m,i)=>{ if(m.wait>0){ m.wait-=dt; if(m.wait<=0){ const a=M2.R()*6.283, rr=15+M2.R()*24; m.tx=M2.sx+Math.sin(a)*rr; m.tz=M2.sz+Math.cos(a)*rr; } }
+    else { const dx=m.tx-m.x, dz=m.tz-m.z, L=Math.hypot(dx,dz), sp=(1.4+SIMS.panic*2.5)*dt; if(L<0.3){ m.wait=1+M2.R()*5; } else { m.x+=dx/L*Math.min(sp,L); m.z+=dz/L*Math.min(sp,L); m.yaw=Math.atan2(dx,dz); m.ph+=dt*9; } }
+    const pd=Math.hypot(player.x-m.x,player.z-m.z); if(pd<2.2 && m.wait>0){ m.wait=0.01; }   // they scamper off when you come close
+    d.position.set(m.x, Math.max(gy(m.x,m.z),M2.b)+(m.wait>0?0:Math.abs(Math.sin(m.ph))*0.12), m.z); d.rotation.set(0,m.yaw,0); d.scale.setScalar(m.sc); d.updateMatrix(); M2.im.setMatrixAt(i,d.matrix); });
+  M2.im.instanceMatrix.needsUpdate=true; }
 for(const L of LM_TOPS) PARTCOLL.push({t:2,cx:L.cx,cz:L.cz,r:L.r*0.9,top:L.top,minx:L.cx-L.r,maxx:L.cx+L.r,minz:L.cz-L.r,maxz:L.cz+L.r});
 const PCG=new Map(); for(const it of PARTCOLL){ for(let gx=Math.floor(it.minx/32); gx<=Math.floor(it.maxx/32); gx++) for(let gz=Math.floor(it.minz/32); gz<=Math.floor(it.maxz/32); gz++){ const k=gx*100003+gz; (PCG.get(k)||PCG.set(k,[]).get(k)).push(it); } }
 const partsAt=(x,z)=>PCG.get(Math.floor(x/32)*100003+Math.floor(z/32))||EMPTY;
@@ -4611,7 +4741,7 @@ function update(dt){
   // labels: fade in with distance, hide near and very far
   for(const s of vLabels.children){ const d=Math.hypot(s.position.x-cx, s.position.z-cz); s.visible = d>s.userData.near && d<s.userData.far; }
   FX.qg.value=gy(player.x,player.z);
-  lifeUpdate(dt); boudhaLOD();
+  lifeUpdate(dt); boudhaLOD(); updateMonkeys(dt);
   svUpdate(dt);
 }
 
