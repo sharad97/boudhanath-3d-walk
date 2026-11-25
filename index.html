@@ -2324,6 +2324,7 @@ let orbitA = 0.65, orbitR = 118, orbitH = 42;
 const keys = {};
 addEventListener('keydown', e=>{ keys[e.code]=true; if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code)) e.preventDefault(); });
 addEventListener('keyup', e=>{ keys[e.code]=false; });
+addEventListener('blur', ()=>{ for(const k in keys) keys[k]=false; });
 
 function collides(nx, nz, ox, oz, R){
   R=R||PR;
@@ -2365,7 +2366,7 @@ cvs.addEventListener('pointermove', e=>{
   else if(mode==='drive'){ DRV.camYaw -= dx*0.006; DRV.camPitch = Math.max(-0.5, Math.min(0.9, DRV.camPitch - dy*0.004)); DRV.camHold=1.5; }
   else { player.yaw -= dx*0.0042; player.pitch = Math.max(-1.1, Math.min(1.1, player.pitch - dy*0.0042)); }
 });
-addEventListener('pointerup', ()=>{ dragging=false; });
+addEventListener('pointerup', ()=>{ dragging=false; }); addEventListener('pointercancel', ()=>{ dragging=false; });
 cvs.addEventListener('wheel', e=>{ if(mode==='orbit'){ orbitR=Math.max(45, Math.min(240, orbitR + e.deltaY*0.12)); } else if(mode==='drive'){ DRV.zoom=Math.max(0.6, Math.min(2.2, DRV.zoom + e.deltaY*0.0015)); } }, {passive:true});
 
 const joyVec={x:0,y:0};
@@ -2382,6 +2383,15 @@ const joyVec={x:0,y:0};
   }
   function end(e){ if(e.pointerId===id){ id=null; joyVec.x=0; joyVec.y=0; setKnob(0,0); } }
   joy.addEventListener('pointerup', end); joy.addEventListener('pointercancel', end);
+  // iOS can cancel a touch without telling the joystick (rotation, system gestures, capture failure):
+  // listen everywhere and release on anything that could swallow the finger-up
+  addEventListener('pointermove', e=>{ if(e.pointerId===id) move(e); });
+  addEventListener('pointerup', end); addEventListener('pointercancel', end);
+  joy.addEventListener('lostpointercapture', end);
+  const reset=()=>{ id=null; joyVec.x=0; joyVec.y=0; setKnob(0,0); };
+  addEventListener('blur', reset); addEventListener('resize', reset); addEventListener('orientationchange', reset);
+  document.addEventListener('visibilitychange', reset);
+  addEventListener('touchend', e=>{ if(id!==null && e.touches.length===0) reset(); }); addEventListener('touchcancel', reset);
 })();
 
 /* ---------- Street View walk — eye-level viewpoints hopping around the kora ---------- */
@@ -3344,6 +3354,7 @@ button,a,.act,.simT{touch-action:manipulation;}
   #simPanel,#drivePanel{top:12px;width:min(340px,calc(100vw - 200px));max-height:calc(100vh - 24px);overflow:auto;left:calc(150px + env(safe-area-inset-left));}
   #mapWrap{display:none;}
   #titleCard{max-width:280px;}
+  #speedo{right:calc(124px + env(safe-area-inset-right));}
   body:has(#drivePanel:not([hidden])) #titleCard, body:has(#simPanel:not([hidden])) #titleCard{display:none;}
   #simPanel,#drivePanel{left:calc(150px + env(safe-area-inset-left));}
 }`;
