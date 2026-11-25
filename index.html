@@ -3372,7 +3372,7 @@ const PIN={bomb:false, fire:false, lightning:false};
 const pinBox=document.createElement('div'); pinBox.id='pinBtns';
 pinBox.innerHTML='<button data-pin="bomb" title="Another atomic blast (9)">☢</button><button data-pin="fire" title="Set the building you look at on fire (8)">🔥</button><button data-pin="lightning" title="Lightning strike (3)">⚡</button>';
 document.body.appendChild(pinBox);
-{ const c=document.createElement('style'); c.textContent=`#pinBtns{position:fixed;left:calc(14px + env(safe-area-inset-left));top:calc(52% - 90px);z-index:6;display:flex;flex-direction:column;gap:10px;}
+{ const c=document.createElement('style'); c.textContent=`#pinBtns{position:fixed;left:calc(14px + env(safe-area-inset-left));bottom:calc(158px + env(safe-area-inset-bottom));z-index:6;display:flex;flex-direction:column-reverse;gap:10px;}   /* just above the joystick, clear of the blast timer */
 #pinBtns button{width:54px;height:54px;border-radius:50%;border:1px solid var(--panel-line);background:rgba(38,26,16,.85);color:#ffe9c4;font-size:26px;line-height:1;display:none;align-items:center;justify-content:center;padding:0;box-shadow:0 6px 18px rgba(0,0,0,.35);touch-action:none;}
 #pinBtns button.on{display:flex;} #pinBtns button[data-pin="bomb"]{background:rgba(120,30,16,.9);border-color:#ffb067;}`; document.head.appendChild(c); }
 pinBox.querySelectorAll('button').forEach(b=>b.addEventListener('pointerdown', e=>{ e.preventDefault(); audioUnlock(); const k=b.dataset.pin; if(k==='bomb') bombNow(); else if(k==='fire') fireNow(); else strike(true); }));
