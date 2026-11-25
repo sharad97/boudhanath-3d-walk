@@ -2342,6 +2342,7 @@ const player = (function(){
 let mode = 'walk'; // walk | tour | orbit | sv
 let tourU = 0.795; // start near the south gate on the loop
 let orbitA = 0.65, orbitR = 118, orbitH = 42;
+const ORB={x:0,y:0,z:0,look:16};   // what Orbit view circles: the stupa at Boudha, else the landmark or spot you are at
 const keys = {};
 addEventListener('keydown', e=>{ keys[e.code]=true; if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code)) e.preventDefault(); });
 addEventListener('keyup', e=>{ keys[e.code]=false; });
@@ -2498,7 +2499,8 @@ function setMode(m){
     let bd=1e9; for(let i=0;i<=300;i++){ const p=koraCurve.getPointAt(i/300); const d=(p.x-player.x)**2+(p.z-player.z)**2; if(d<bd){bd=d; tourU=i/300;} }
     showToast('Walking the kora — clockwise, as pilgrims do');
   }
-  if(m==='orbit') showToast('Orbit view — drag to swing around, scroll to zoom');
+  if(m==='orbit'){ const c=VAL.orbitCenter(player.x,player.z); Object.assign(ORB,c); orbitR=c.r; orbitH=c.h; if(c.name!=='Boudhanath') orbitA=Math.atan2(player.x-c.x, player.z-c.z);
+    showToast('Orbit view'+(c.name?' around '+c.name:'')+' — drag to swing around, scroll to zoom'); }
   if(m==='walk') showToast('On foot — drag to look, WASD or joystick to walk');
 }
 btnTour.addEventListener('click', ()=> setMode(mode==='tour' ? 'walk' : 'tour'));
@@ -4814,9 +4816,16 @@ const BOUDHA_LIFE=[]; scene.traverse(o=>{ if(o.isInstancedMesh && o.frustumCulle
 let boudhaHidden=false;
 function boudhaLOD(){ const far=Math.hypot(camera.position.x,camera.position.z)>1100; if(far===boudhaHidden) return; boudhaHidden=far;
   for(const o of BOUDHA_LIFE){ if(far){ o.userData.vWas=o.visible; o.visible=false; } else o.visible=o.userData.vWas!==undefined?o.userData.vWas:true; } }
+/* Orbit view: the stupa at Boudha; elsewhere the nearest landmark within 260 m, else the spot you are standing on */
+function orbitCenter(x,z){
+  if(Math.hypot(x,z)<320) return {x:0,y:0,z:0,look:16,r:118,h:42,name:'Boudhanath'};
+  let best=null, bd=1e9; for(const L of LM_TOPS){ const d=Math.hypot(L.cx-x,L.cz-z); if(d<bd){ bd=d; best=L; } }
+  if(best && bd<260){ const g=gy(best.cx,best.cz), ht=Math.max(6,best.top-g);
+    return {x:best.cx, y:g, z:best.cz, look:Math.max(4,ht*0.45), r:Math.max(45,Math.min(200,ht*2.4+best.r*2.2)), h:Math.max(14,Math.min(95,ht*1.2)), name:best.name}; }
+  return {x, y:gy(x,z), z, look:5, r:80, h:34, name:''}; }
 let firstStream=true;
 camera.far=150000; camera.updateProjectionMatrix();
-return {stats:STATS, wanted:()=>queue.length, lm:LM_TOPS, dhara:DHARA, vpeople:VPEO, eyeY, walkK, waterInfo, bldAt, bldsNear, gy, inCircle, inBoudha, collides:collidesV, roofY, roadsNear, minimap, update, stream, X0, Z0, SPAN, E0:VM.E0, DATUM:VM.DATUM, CX, CZ, RAD, TILES, ovCanvas, runway:()=>VALLEY.runway, meta:VM};
+return {orbitCenter, stats:STATS, wanted:()=>queue.length, lm:LM_TOPS, dhara:DHARA, vpeople:VPEO, eyeY, walkK, waterInfo, bldAt, bldsNear, gy, inCircle, inBoudha, collides:collidesV, roofY, roadsNear, minimap, update, stream, X0, Z0, SPAN, E0:VM.E0, DATUM:VM.DATUM, CX, CZ, RAD, TILES, ovCanvas, runway:()=>VALLEY.runway, meta:VM};
 })();
 function GY(x,z){ return VAL.gy(x,z); }
 
@@ -4884,8 +4893,9 @@ function animate(){
       setCam(pos.x, EYE, pos.z, camYaw, camPitch, headBob(1.65,dt));
     } else if(mode==='orbit'){
       if(!dragging && !reduced) orbitA += dt*0.045;
-      camera.position.set(Math.sin(orbitA)*orbitR, orbitH, Math.cos(orbitA)*orbitR);
-      camera.lookAt(0, 16, 0);
+      camera.position.set(ORB.x+Math.sin(orbitA)*orbitR, ORB.y+orbitH, ORB.z+Math.cos(orbitA)*orbitR);
+      camera.position.y=Math.max(camera.position.y, GY(camera.position.x,camera.position.z)+3);
+      camera.lookAt(ORB.x, ORB.y+ORB.look, ORB.z);
       camera.position.x+=CAMFX.x*3; camera.position.y+=CAMFX.y*3; camera.position.z+=CAMFX.z*3;
       player.yaw = orbitA + Math.PI; camYaw=player.yaw;
     } else if(mode==='sv'){
@@ -4926,7 +4936,7 @@ function animate(){
     updateSim(dt, t);
     VAL.update(dt);
     // shadows follow the viewer (texel-snapped)
-    if(mode==='orbit') placeShadow(0,0,165);
+    if(mode==='orbit') placeShadow(ORB.x,ORB.z,165);
     else { camera.getWorldDirection(fwd); placeShadow(camera.position.x+fwd.x*Q.shadowR*0.45, camera.position.z+fwd.z*Q.shadowR*0.45, Q.shadowR); }
     renderer.shadowMap.needsUpdate = (frameNo % Q.shadowEvery)===0 || firstFrame;
     mapT+=dt; if(mapT>0.12){ mapT=0; drawMinimap(); }
