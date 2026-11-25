@@ -2004,17 +2004,13 @@ function koraSample(u){ u=((u%1)+1)%1; const f=u*KN, i=Math.floor(f)%KN, j=(i+1)
   let tx=KT[i*2]+(KT[j*2]-KT[i*2])*t, tz=KT[i*2+1]+(KT[j*2+1]-KT[i*2+1])*t; const l=Math.hypot(tx,tz)||1; tx/=l; tz/=l; KS.tx=tx; KS.tz=tz;
   let nx=tz, nz=-tx; if(nx*KS.x+nz*KS.z<0){ nx=-nx; nz=-nz; } KS.nx=nx; KS.nz=nz;
   KS.lo=KMIN[i]+(KMIN[j]-KMIN[i])*t; KS.hi=KMAX[i]+(KMAX[j]-KMAX[i])*t; return KS; }
-/* benches and dozing street dogs along the shop side of the kora */
+/* benches along the shop side of the kora (the street dogs are animated: see DOGS below) */
 (function(){
-  const R=rng(55), benches=[], dogs=[];
+  const R=rng(55), benches=[];
   for(let i=0;i<12;i++){ const u=(i+R()*0.5)/12; const s=koraSample(u); const off=s.hi-0.9; benches.push({x:s.x+s.nx*off, z:s.z+s.nz*off, yaw:Math.atan2(-s.nx,-s.nz)}); }
-  for(let i=0;i<7;i++){ const u=R(); const s=koraSample(u); const off=s.lo+(s.hi-s.lo)*(0.2+R()*0.7); dogs.push({x:s.x+s.nx*off, z:s.z+s.nz*off, yaw:R()*6.28, col:pick(R,['#b8864f','#6b4a2c','#d9c3a0','#2a2420','#8a5a2a'])}); }
   const bg=mergeVC([[new THREE.BoxGeometry(1.8,0.06,0.42).translate(0,0.45,0),[0.55,0.36,0.2]],[new THREE.BoxGeometry(1.8,0.38,0.05).translate(0,0.68,-0.2).rotateX(0),[0.55,0.36,0.2]],
     [new THREE.BoxGeometry(0.05,0.45,0.4).translate(-0.8,0.22,0),[0.15,0.15,0.15]],[new THREE.BoxGeometry(0.05,0.45,0.4).translate(0.8,0.22,0),[0.15,0.15,0.15]]]);
   instanced(bg, new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.8}), benches, (d,b)=>{ d.position.set(b.x,0,b.z); d.rotation.y=b.yaw; addCollider(b.x,b.z,0.75); }, {cast:true});
-  const dg=mergeVC([[new THREE.SphereGeometry(0.26,10,8).scale(1,0.62,1.9).translate(0,0.17,0),[1,1,1]],[new THREE.SphereGeometry(0.13,10,8).scale(1,0.9,1.25).translate(0.12,0.14,0.5),[1,1,1]],
-    [new THREE.ConeGeometry(0.05,0.1,4).translate(0.07,0.26,0.47),[0.8,0.8,0.8]],[new THREE.ConeGeometry(0.05,0.1,4).translate(0.18,0.25,0.47),[0.8,0.8,0.8]],[new THREE.CylinderGeometry(0.03,0.02,0.35,5).rotateZ(1.2).translate(-0.2,0.08,-0.5),[1,1,1]]]);
-  instanced(dg, new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.95}), dogs, (d,g)=>{ d.position.set(g.x,0,g.z); d.rotation.y=g.yaw; addCollider(g.x,g.z,0.45); return tmpCol.set(g.col); }, {cast:true});
 })();
 await tick();
 /* =================== PEOPLE — monks, nuns, Tibetan elders, tourists, locals ===================
@@ -2111,6 +2107,68 @@ function poseAll(t, dt, camX, camZ){
   }
   for(const k in PM) PM[k].instanceMatrix.needsUpdate=true;
 }
+/* =================== DOGS — Boudha's street dogs: they wander the kora, stop and look around, sit, lie down and sleep
+   (breathing, twitching ears, the odd head lift), wag, and bolt barking when there is a bang. Four instanced meshes. =================== */
+const DOGS=[];
+const DG={ body: mergeVC([[new THREE.SphereGeometry(0.17,12,9).scale(0.95,0.95,1.9),[1,1,1]],[new THREE.SphereGeometry(0.15,10,8).scale(1,1.05,1.1).translate(0,0.03,0.2),[1,1,1]],[new THREE.SphereGeometry(0.1,8,6).scale(1,0.7,1.2).translate(0,-0.07,0.05),[0.85,0.8,0.75]]]),
+  head: mergeVC([[new THREE.CylinderGeometry(0.065,0.08,0.16,8).rotateX(-0.6).translate(0,0.03,0.02),[1,1,1]],[new THREE.SphereGeometry(0.095,10,8).scale(1,0.92,1.05).translate(0,0.1,0.08),[1,1,1]],
+    [new THREE.CylinderGeometry(0.04,0.055,0.13,8).rotateX(Math.PI/2).translate(0,0.07,0.19),[0.82,0.74,0.64]],[new THREE.SphereGeometry(0.024,6,5).translate(0,0.085,0.255),[0.05,0.04,0.04]],
+    [new THREE.SphereGeometry(0.012,5,4).translate(0.045,0.135,0.165),[0.04,0.03,0.02]],[new THREE.SphereGeometry(0.012,5,4).translate(-0.045,0.135,0.165),[0.04,0.03,0.02]],
+    [new THREE.ConeGeometry(0.035,0.09,4).rotateZ(-0.35).translate(0.06,0.2,0.05),[0.9,0.85,0.8]],[new THREE.ConeGeometry(0.035,0.09,4).rotateZ(0.35).translate(-0.06,0.2,0.05),[0.9,0.85,0.8]]]),
+  leg: mergeVC([[new THREE.CylinderGeometry(0.032,0.024,0.36,6).translate(0,-0.18,0),[1,1,1]],[new THREE.SphereGeometry(0.03,6,4).scale(1,0.6,1.4).translate(0,-0.36,0.015),[0.85,0.8,0.75]]]),
+  tail: mergeVC([[new THREE.CylinderGeometry(0.03,0.012,0.3,6).rotateX(Math.PI/2).translate(0,0,-0.15),[1,1,1]]]) };
+const NDOG=9, DM={};
+for(const [k,n] of [['body',NDOG],['head',NDOG],['leg',NDOG*4],['tail',NDOG]]){ const m=new THREE.InstancedMesh(DG[k], new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.97}), n); m.frustumCulled=false; m.castShadow=true; m.receiveShadow=true; scene.add(m); DM[k]=m; }
+// pose targets: body height, pitch (+ nose down), roll (on its side), front / rear leg angles, head pitch / yaw, tail lift
+const DPOSE={ stand:{y:0.42,p:0,r:0,lf:0,lr:0,hp:-0.05,hy:0,tu:0.5}, walk:{y:0.42,p:0.03,r:0,lf:0,lr:0,hp:0.12,hy:0,tu:0.35}, run:{y:0.42,p:0.05,r:0,lf:0,lr:0,hp:0.2,hy:0,tu:0.6},
+  sit:{y:0.3,p:-0.5,r:0,lf:0.5,lr:-1.05,hp:0.38,hy:0,tu:-0.95}, lie:{y:0.19,p:0,r:0,lf:-1.45,lr:-1.25,hp:0.05,hy:0,tu:-0.5}, sleep:{y:0.15,p:0.02,r:1.38,lf:-0.55,lr:-0.35,hp:0.55,hy:-0.45,tu:-0.25} };
+(function(){ const R=rng(55), C=['#b8864f','#6b4a2c','#d9c3a0','#2a2420','#a8642c','#7a6a58','#c9a46e','#3d2f25','#e6dccb'];
+  for(let i=0;i<NDOG;i++){ const u=R(), lane=0.15+R()*0.8, s=koraSample(u), off=s.lo+(s.hi-s.lo)*lane;
+    const st=R()<0.45?'sleep':R()<0.5?'lie':'sit';
+    const d={i, u, lane, x:s.x+s.nx*off, z:s.z+s.nz*off, yaw:R()*6.28, st, stT:6+R()*30, ph:R()*6, P:Object.assign({},DPOSE[st]), tx:0, tz:0, sp:0, look:0, lookT:0, ear:0, wag:0, h:0.85+R()*0.3, bark:0};
+    DOGS.push(d); tmpCol.set(C[i%C.length]); for(const k of ['body','head','tail']) DM[k].setColorAt(i,tmpCol); for(let j=0;j<4;j++) DM.leg.setColorAt(i*4+j,tmpCol); }
+  for(const k in DM) DM[k].instanceColor.needsUpdate=true; })();
+window.__dogs=DOGS;   // debugging
+function dogPick(d){ // next thing to do: mostly rest, sometimes amble a few metres along the kora
+  const r=Math.random(); let st = r<0.3?'sleep': r<0.5?'lie': r<0.65?'sit': r<0.75?'stand':'walk';
+  if(d.st==='sleep' && st!=='sleep' && Math.random()<0.5) st='lie';   // waking slowly
+  d.st=st; d.stT = st==='sleep'?25+Math.random()*50 : st==='lie'?10+Math.random()*25 : st==='sit'?6+Math.random()*14 : st==='stand'?3+Math.random()*5 : 30;
+  if(st==='walk'){ d.u=(d.u+(Math.random()<0.5?-1:1)*(0.006+Math.random()*0.03)+1)%1; d.lane=Math.max(0.08,Math.min(0.95,d.lane+(Math.random()-0.5)*0.5)); const s=koraSample(d.u), off=s.lo+(s.hi-s.lo)*d.lane; d.tx=s.x+s.nx*off; d.tz=s.z+s.nz*off; } }
+const _DM=new THREE.Matrix4(), _DB=new THREE.Matrix4(), _DL=new THREE.Matrix4(), _DQ=new THREE.Quaternion(), _DE=new THREE.Euler(), _DV=new THREE.Vector3(), _DS=new THREE.Vector3(1,1,1);
+function dogM(par, x,y,z, rx,ry,rz, out){ _DQ.setFromEuler(_DE.set(rx,ry,rz,'YXZ')); _DL.compose(_DV.set(x,y,z), _DQ, _DS); return out.multiplyMatrices(par,_DL); }
+function updateDogs(dt, t){
+  const scared = SIMS.panic>0.25;
+  for(const d of DOGS){
+    const far=(d.x-player.x)**2+(d.z-player.z)**2>160*160; if(far && ((frameNo+d.i)&7)) continue;
+    const dp=Math.hypot(player.x-d.x, player.z-d.z);
+    if(scared && d.st!=='run'){ d.st='run'; d.stT=5+Math.random()*4; const a=Math.atan2(d.x-player.x,d.z-player.z)+(Math.random()-0.5); d.tx=d.x+Math.sin(a)*25; d.tz=d.z+Math.cos(a)*25; d.bark=3+Math.floor(Math.random()*3); }
+    if((d.st==='sleep'||d.st==='lie') && dp<1.6 && Math.random()<dt*0.8){ d.lookT=3; }                     // someone steps close: the head comes up
+    d.stT-=dt; if(d.stT<=0 && d.st!=='walk' && d.st!=='run') dogPick(d);
+    let speed=0;
+    if(d.st==='walk'||d.st==='run'){ const dx=d.tx-d.x, dz=d.tz-d.z, L=Math.hypot(dx,dz); speed = d.st==='run'?3.2:0.95;
+      if(dp<1.3 && d.st==='walk') speed=0;                                                                     // waits for you to pass
+      if(L<0.4 || d.stT<-25 || (d.st==='run' && d.stT<=0)){ dogPick(d); if(d.st==='walk') d.st='stand', d.stT=2+Math.random()*3; }
+      else { const ty=Math.atan2(dx,dz); let dy=ty-d.yaw; while(dy>Math.PI)dy-=6.283; while(dy<-Math.PI)dy+=6.283; d.yaw+=dy*Math.min(1,dt*(d.st==='run'?6:3));
+        const ok=Math.cos(dy)>0.3?1:0.25; const nx=d.x+Math.sin(d.yaw)*speed*ok*dt, nz=d.z+Math.cos(d.yaw)*speed*ok*dt; if(Math.hypot(nx,nz)<300 && !buildingAt(nx,nz)){ d.x=nx; d.z=nz; } else dogPick(d); } }
+    d.sp+=(speed-d.sp)*Math.min(1,dt*4); d.ph+=d.sp*dt*(d.st==='run'?9:7.5);
+    if(d.bark>0 && Math.random()<dt*2.2){ d.bark--; if(AUD.on&&AUD.ctx&&dp<70){ const t0=AUD.ctx.currentTime, k=Math.max(0.05,0.35*(1-dp/70)); noiseHit(t0,0.07,780+Math.random()*200,'bandpass',k); noiseHit(t0+0.02,0.09,420,'bandpass',k*0.8); } }
+    // ease toward the target pose; lifts its head now and then, twitches an ear, wags when standing
+    const tgt=DPOSE[d.st]||DPOSE.stand, P=d.P, e=Math.min(1,dt*(d.st==='run'?6:2.2)); for(const k in tgt) P[k]+=(tgt[k]-P[k])*e;
+    d.lookT-=dt; if(d.lookT<=0 && Math.random()<dt*(d.st==='sleep'?0.03:0.25)){ d.lookT=1.5+Math.random()*3; d.look=(Math.random()-0.5)*1.6; }
+    const looking=d.lookT>0; d.ear=Math.max(0,d.ear-dt*6); if(Math.random()<dt*0.15) d.ear=1;
+    const breathe = d.st==='sleep' ? Math.sin(t*1.5+d.i)*0.035 : d.st==='lie' ? Math.sin(t*2.2+d.i)*0.02 : Math.sin(t*3.4+d.i)*0.012;
+    let hp=P.hp, hy=P.hy, roll=P.r; if(looking){ if(d.st==='sleep'){ hp-=0.55*Math.min(1,d.lookT); roll=P.r*0.75; } hy+=d.look*Math.min(1,d.lookT); }
+    const wag = (d.st==='stand'||d.st==='walk') ? Math.sin(t*9+d.i)*0.45 : d.st==='sit'? Math.sin(t*6+d.i)*0.25 : d.st==='run'?Math.sin(t*14)*0.3: 0;
+    const gait=Math.min(1,d.sp/0.9)*(d.st==='run'?0.75:0.5), sw=Math.sin(d.ph), bob=Math.abs(Math.cos(d.ph))*0.02*gait;
+    // matrices: root → body → legs / head / tail
+    const h=d.h; _DM.makeRotationY(d.yaw); _DM.setPosition(d.x, GY(d.x,d.z), d.z); _DM.scale(_DS.set(h,h,h));
+    _DS.set(1,1,1); dogM(_DM, 0,P.y+bob,0, P.p,0,roll, _DB);
+    _DS.set(1+breathe,1+breathe*1.4,1); dogM(_DB,0,0,0,0,0,0,_W); DM.body.setMatrixAt(d.i,_W); _DS.set(1,1,1);
+    const legs=[[0.075,0.2,P.lf, sw],[-0.075,0.2,P.lf,-sw],[0.075,-0.2,P.lr,-sw],[-0.075,-0.2,P.lr,sw]];
+    legs.forEach(([lx,lz,a,ph],j)=>{ dogM(_DB, lx,-0.05,lz, a+ph*gait,0,0, _W); DM.leg.setMatrixAt(d.i*4+j,_W); });
+    dogM(_DB, 0,0.08,0.28, hp+Math.sin(d.ph*2)*0.05*gait, hy, d.ear*0.06, _W); DM.head.setMatrixAt(d.i,_W);
+    dogM(_DB, 0,0.06,-0.31, P.tu, wag, 0, _W); DM.tail.setMatrixAt(d.i,_W); }
+  for(const k in DM) DM[k].instanceMatrix.needsUpdate=true; }
 let frameNo=0;
 /* knocked down (punch / kick: gets up after a few seconds and runs) or shot (stays down ~45 s, then back in the crowd). No gore: they just fall. */
 function downTick(p,dt){ const D=p.down; D.t+=dt;
@@ -2769,6 +2827,48 @@ const debris=new THREE.InstancedMesh(mergeVC([[new THREE.BoxGeometry(0.24,0.08,0
 const DEB=[]; for(let i=0;i<DEB_N;i++){ DEB.push({on:false}); debris.setColorAt(i, tmpCol.set(pick(Math.random,['#9a4a32','#a9583c','#8a3e2a','#d8d0c0','#c9c0ae','#7c7468']))); debris.setMatrixAt(i, ZERO); }
 debris.instanceColor.needsUpdate=true;
 let quakeBlds=[], debAcc=0, dustK=0, QKILL=[], qkAcc=0;
+/* ---------------- BUILDING BREAK-UP: a collapsing building is thrown apart as concrete / brick blocks that tumble, bounce and settle
+   as a rubble field (instanced boxes, pooled; the oldest are reused). Used by the A-bomb, earthquakes, missiles and crashes. ---------------- */
+const CH_N=MOBILE?2000:6000, CHK=[]; let chNext=0, chSpawnBudget=0;
+const chunkMesh=new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshStandardMaterial({roughness:0.92, flatShading:true}), CH_N);
+chunkMesh.frustumCulled=false; chunkMesh.castShadow=!MOBILE; chunkMesh.receiveShadow=true; chunkMesh.name='simChunks'; chunkMesh.userData.always=true; chunkMesh.count=0; scene.add(chunkMesh);
+for(let i=0;i<CH_N;i++){ CHK.push({on:false}); chunkMesh.setMatrixAt(i,ZERO); chunkMesh.setColorAt(i,tmpCol.setRGB(1,1,1)); }
+const CONC=[[0.5,0.48,0.45],[0.42,0.4,0.38],[0.58,0.55,0.5]];
+function shatter(b, mode, ox, oz, power){ if(!b || !b.pts || chSpawnBudget<=0) return 0;
+  const cam=camera.position; if(Math.hypot(b.c[0]-cam.x,b.c[1]-cam.z)>(MOBILE?380:620)) return 0;
+  const base=b.base!=null?b.base:GY(b.c[0],b.c[1]), top=Math.max(base+2.5,b.oldTop||b.wallTop), H=top-base, area=Math.max(8,b.area||40);
+  let minx=1e9,maxx=-1e9,minz=1e9,maxz=-1e9; for(const q of b.pts){ minx=Math.min(minx,q[0]); maxx=Math.max(maxx,q[0]); minz=Math.min(minz,q[1]); maxz=Math.max(maxz,q[1]); }
+  const n=Math.min(chSpawnBudget, Math.round(Math.max(10,Math.min(70, area*H/30))*(MOBILE?0.5:1))); chSpawnBudget-=n;
+  const s0=Math.max(0.5,Math.min(3.0,Math.cbrt(area*H/n)*0.7)), col=b.col||[0.6,0.56,0.5], pw=power||20;
+  for(let k=0;k<n;k++){ let x=0,z=0; for(let tr=0;tr<6;tr++){ x=minx+Math.random()*(maxx-minx); z=minz+Math.random()*(maxz-minz); if(pointInPoly(x,z,b.pts)) break; }
+    const y=base+Math.random()*H, C=CHK[chNext], i=chNext; chNext=(chNext+1)%CH_N;
+    const s=s0*(0.55+Math.random()*0.75), flat=Math.random()<0.45;
+    Object.assign(C,{on:true, rest:false, t:0, x, y, z, sx:s*(0.8+Math.random()*0.6), sy:flat?s*0.32:s*(0.6+Math.random()*0.5), sz:s*(0.8+Math.random()*0.6), rx:Math.random()*6, ry:Math.random()*6, rz:Math.random()*6, blasted:mode!=='inhale'});
+    let dx=x-ox, dz=z-oz; const dl=Math.hypot(dx,dz)||1; dx/=dl; dz/=dl;
+    if(mode==='quake'){ C.vx=dx*(0.3+Math.random()*1.6)+(Math.random()-0.5); C.vy=Math.random()*1.2; C.vz=dz*(0.3+Math.random()*1.6)+(Math.random()-0.5); C.w=1+Math.random()*3; }
+    else if(mode==='inhale'){ const v=pw*(0.5+Math.random()*0.6); C.vx=-dx*v; C.vz=-dz*v; C.vy=pw*(0.5+Math.random()*0.7); C.w=4+Math.random()*8; }
+    else { const v=pw*(0.45+Math.random()*0.8)*(0.6+0.6*(y-base)/H); C.vx=dx*v+(Math.random()-0.5)*pw*0.3; C.vz=dz*v+(Math.random()-0.5)*pw*0.3; C.vy=4+pw*(0.2+Math.random()*0.5); C.w=3+Math.random()*10; }   // long, high arcs: a storm of blocks
+    const m=Math.random(), c=m<0.55?col:m<0.85?CONC[k%3]:[col[0]*0.6,col[1]*0.6,col[2]*0.6], sh=0.85+Math.random()*0.3;
+    chunkMesh.setColorAt(i,tmpCol.setRGB(c[0]*sh,c[1]*sh,c[2]*sh)); }
+  chunkMesh.instanceColor.needsUpdate=true; chunkMesh.count=CH_N; return n; }
+const _cq=new THREE.Quaternion(), _ce=new THREE.Euler(), _cs=new THREE.Vector3(), _cp=new THREE.Vector3(), _cm=new THREE.Matrix4();
+function updateChunks(dt){ chSpawnBudget=Math.min(MOBILE?600:1600, chSpawnBudget+(MOBILE?600:1600)); if(chunkMesh.count===0) return;
+  const bomb=SIM.bombT>=0, T=SIM.bombT, gz=BOMB.gz, Ta=BOMB.dist/343, r=343*T; let any=false;
+  for(let i=0;i<CH_N;i++){ const C=CHK[i]; if(!C.on) continue; any=true;
+    if(bomb){ const dx=C.x-gz.x, dz=C.z-gz.z, d=Math.hypot(dx,dz)||1;
+      if(T<0.9 && d<420){ const k=(1-d/420)*42*dt; C.vx-=dx/d*k; C.vz-=dz/d*k; C.vy+=k*0.55; C.rest=false; }                 // the fireball breathes in
+      else if(!C.blasted && d<r){ C.blasted=true; const p=Math.max(0,1-d/750)*85; C.vx+=dx/d*p; C.vz+=dz/d*p; C.vy+=p*0.25; C.w=6+Math.random()*10; C.rest=false; }   // then the shock wave throws everything out
+      else if(T>Ta+1.5 && T<30 && d<320 && C.sx*C.sy*C.sz<3){ if(C.rest && Math.random()<dt*0.15*(1-d/320)) C.rest=false;            // afterwinds: light debris pulled back in and up the stem
+        if(!C.rest){ const k=(1-d/320)*dt; C.vx-=dx/d*7*k; C.vz-=dz/d*7*k; if(d<110) C.vy+=13*dt*(1-d/110); } } }
+    if(!C.rest){ C.t+=dt; C.vy-=9.8*dt; const dr=Math.exp(-dt*0.08); C.vx*=dr; C.vz*=dr; C.x+=C.vx*dt; C.y+=C.vy*dt; C.z+=C.vz*dt; C.rx+=C.w*dt; C.rz+=C.w*0.7*dt;
+      const g=GY(C.x,C.z)+C.sy*0.5;
+      if(C.y<g){ C.y=g; if(C.vy<-2.5){ C.vy*=-0.28; C.vx*=0.55; C.vz*=0.55; C.w*=0.5; if(AUD.on&&AUD.ctx&&Math.random()<0.03&&camera.position.distanceTo(_cp.set(C.x,C.y,C.z))<120) noiseHit(AUD.ctx.currentTime,0.1,500,'lowpass',0.12); }
+        else { C.vy=0; C.vx*=Math.exp(-dt*7); C.vz*=Math.exp(-dt*7); C.w*=Math.exp(-dt*6); C.rx+=(Math.round(C.rx/1.5708)*1.5708-C.rx)*Math.min(1,dt*5); C.rz+=(Math.round(C.rz/1.5708)*1.5708-C.rz)*Math.min(1,dt*5);
+          if(Math.hypot(C.vx,C.vz)<0.15 && C.t>0.6){ C.rest=true; } } }
+      _cq.setFromEuler(_ce.set(C.rx,C.ry,C.rz)); _cm.compose(_cp.set(C.x,C.y,C.z), _cq, _cs.set(C.sx,C.sy,C.sz)); chunkMesh.setMatrixAt(i,_cm); } }
+  if(any) chunkMesh.instanceMatrix.needsUpdate=true; }
+window.__chunks=CHK;   // debugging
+function clearChunks(){ for(let i=0;i<CH_N;i++){ CHK[i].on=false; chunkMesh.setMatrixAt(i,ZERO); } chunkMesh.count=0; chunkMesh.instanceMatrix.needsUpdate=true; }
 function burstDebris(b,n,power){ const pw=power||1; for(let k=0;k<n;k++){ const d=DEB.find(o=>!o.on); if(!d) break; const kk=Math.floor(Math.random()*b.pts.length), p0=b.pts[kk], p1=b.pts[(kk+1)%b.pts.length], f=Math.random();
     const x=p0[0]+(p1[0]-p0[0])*f, z=p0[1]+(p1[1]-p0[1])*f, ox=x-b.c[0], oz=z-b.c[1], ol=Math.hypot(ox,oz)||1, base=b.base!=null?b.base:GY(x,z), top=b.oldTop||b.wallTop;
     Object.assign(d,{on:true, sc:1+Math.random()*3.5*pw, x, y:base+Math.random()*Math.max(1,top-base), z, g:GY(x,z), vx:ox/ol*(1+Math.random()*4)*pw, vy:Math.random()*4*pw, vz:oz/ol*(1+Math.random()*4)*pw, rx:Math.random()*6, ry:Math.random()*6, rz:Math.random()*6, w:4+Math.random()*8, rest:false}); }
@@ -2785,32 +2885,32 @@ function updateBooms(dt){ for(const B of BOOMS){ if(!B.on) continue; B.t+=dt; co
     const fr=s*(0.35+1.1*(1-Math.exp(-T*6))); B.f.position.set(B.x,B.y+T*s*0.25,B.z); B.f.scale.setScalar(fr); B.f.material.opacity=Math.max(0,1-T/0.9); B.f.material.color.setRGB(1.6,0.7+0.6*Math.exp(-T*3),0.25); B.f.visible=B.f.material.opacity>0.01;
     for(const m of B.sm){ const o=m.userData.o, k=Math.min(1,T/0.6); m.position.set(B.x+o[0]*k, B.y+o[1]+T*s*0.35*o[3], B.z+o[2]*k); m.scale.setScalar(s*(0.3+0.5*k+T*0.12)*o[3]); m.material.opacity=Math.min(0.8,T*3)*Math.max(0,1-T/7); m.visible=T>0.08 && m.material.opacity>0.01; }
     if(T>7){ B.on=false; B.f.visible=false; for(const m of B.sm) m.visible=false; } } }
-function restoreCity(quiet){ const n=VAL.restore(); clearDebris(); reviveAll(); if(!quiet) showToast(n?'Rebuilt '+n.toLocaleString('en')+' buildings':'Nothing to rebuild'); return n; }
+function restoreCity(quiet){ const n=VAL.restore(); clearDebris(); clearChunks(); reviveAll(); if(!quiet) showToast(n?'Rebuilt '+n.toLocaleString('en')+' buildings':'Nothing to rebuild'); return n; }
 
 /* ---------------- ATOMIC BLAST: fireball, mushroom cloud, dust wall ---------------- */
 const BOMB={gz:new THREE.Vector3(), dist:560, dir:new THREE.Vector3(), built:false, list:[], li:0};   // close enough to watch the city go (was 1.9 km)
-const MUSH_N=MOBILE?240:460;
+const MUSH_N=MOBILE?520:1100;
 const mushGeo=bbGeo(MUSH_N, [['aSeed',4,(a,o)=>{ for(let k=0;k<4;k++) a[o+k]=Math.random(); }]]);
 const mushMat=bbMat(`attribute vec4 aSeed; uniform float uT, uGlow, uFade; uniform vec3 uGZ;
 void main(){ float T=uT; float size=0.0, rot=aSeed.x*6.28+T*0.02*(aSeed.y-0.5); vec3 p=vec3(0.0); vec3 wp;
   float grow=smoothstep(0.6,3.5,T); float capH=60.0+1050.0*(1.0-exp(-T/13.0)); float R=80.0+290.0*(1.0-exp(-T/17.0)); float rr=R*0.48;
   float role=aSeed.w; float hf=0.0;
   if(role<0.56){ float th=aSeed.x*6.2832; float ph=aSeed.y*6.2832+T*0.32; float k=sqrt(aSeed.z);
-    float rad=R+rr*cos(ph)*k; p=vec3(cos(th)*rad, capH+rr*0.75*sin(ph)*k, sin(th)*rad); size=rr*(0.6+0.45*aSeed.z); hf=0.85+0.15*sin(ph); }
+    float rad=R+rr*cos(ph)*k; p=vec3(cos(th)*rad, capH+rr*0.75*sin(ph)*k, sin(th)*rad); size=rr*(0.34+0.36*aSeed.z); hf=0.55+0.45*k*(0.6+0.4*sin(ph)); }
   else if(role<0.82){ float y=aSeed.x*capH*0.95; float rad=(28.0+T*1.4)*(0.35+0.65*aSeed.y)*(1.0-0.35*sin(3.1416*y/capH)); float th=aSeed.z*6.2832+y*0.01+T*0.15;
     p=vec3(cos(th)*rad, y, sin(th)*rad); size=48.0+T*1.3; hf=y/capH*0.8; }
-  else { float th=aSeed.x*6.2832; float rad=min(343.0*T,700.0)*(0.45+0.55*aSeed.y); p=vec3(cos(th)*rad, 12.0+aSeed.z*45.0, sin(th)*rad); size=80.0+aSeed.z*90.0; hf=0.15; size*=(1.0-smoothstep(25.0,60.0,T))*0.8+0.2; }
+  else { float th=aSeed.x*6.2832; float rad=min(343.0*T,700.0)*(0.45+0.55*aSeed.y); p=vec3(cos(th)*rad, 12.0+aSeed.z*45.0, sin(th)*rad); size=(80.0+aSeed.z*90.0)*0.75; hf=1.0; size*=(1.0-smoothstep(25.0,60.0,T))*0.8+0.2; }
   wp=uGZ+p*grow; size*=grow;
-  float g=uGlow*(1.0-hf*0.6); vec3 lit=mix(vec3(0.4,0.35,0.3), vec3(0.86,0.8,0.74), hf*(0.6+0.4*aSeed.z))*max(uAmb*1.15, vec3(0.6,0.56,0.52));
+  float g=uGlow*(1.0-hf*0.6); vec3 lit=mix(vec3(0.6,0.38,0.31), vec3(0.97,0.93,0.88), smoothstep(0.25,0.78,hf*(0.7+0.3*aSeed.z)))*max(uAmb*1.2, vec3(0.7,0.66,0.62));
   vC=lit+vec3(1.0,0.42,0.1)*g*1.8+vec3(1.0,0.85,0.55)*g*g*1.5;
-  vA=0.85*uFade*smoothstep(0.4,1.6,T);
+  vA=0.85*uFade*smoothstep(0.4,1.6,T)*(role>=0.82?0.55:1.0); if(role>=0.82) vC=mix(vC, vec3(0.74,0.7,0.64)*max(uAmb*1.2,vec3(0.7)), 0.8);
   ${BB_END} }`,
 `void main(){ float t=texture2D(uTex,vUv).a; float ff=1.0-exp(-uFogD*uFogD*vFog*vFog); gl_FragColor=vec4(mix(vC,uFogC,ff*0.8), t*vA); }`,
 {uT:{value:0}, uGlow:{value:0}, uFade:{value:1}, uGZ:{value:BOMB.gz}}, false, 0.22);
 const mush=addBB(mushGeo, mushMat, 'simMushroom'); mush.renderOrder=2;
-const fireball=new THREE.Mesh(new THREE.SphereGeometry(1,32,18), new THREE.MeshBasicMaterial({color:0xffffff, transparent:true, fog:false, toneMapped:false, depthWrite:false}));
+const fireball=new THREE.Sprite(new THREE.SpriteMaterial({map:TEX.glow, color:0xffffff, transparent:true, blending:THREE.AdditiveBlending, fog:false, toneMapped:false, depthWrite:false}));   // a soft, blinding glow rather than a flat disc
 fireball.visible=false; fireball.renderOrder=2; scene.add(fireball);
-const wallMat=new THREE.ShaderMaterial({ uniforms:{uTime:SIMT, uT:{value:0}, uOp:{value:0}, uCol:{value:new THREE.Color(0x9a8068)}},
+const wallMat=new THREE.ShaderMaterial({ uniforms:{uTime:SIMT, uT:{value:0}, uOp:{value:0}, uCol:{value:new THREE.Color(0xb8ab9c)}},
   vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
   fragmentShader:`uniform float uTime,uT,uOp; uniform vec3 uCol; varying vec2 vUv; ${GLSL_N}
   void main(){ float n=vn(vec2(vUv.x*180.0, vUv.y*4.0-uT*2.0))*0.6+vn(vec2(vUv.x*600.0,vUv.y*9.0-uT*3.0))*0.4; float a=pow(1.0-vUv.y,1.4)*(0.35+0.75*n)*uOp; gl_FragColor=vec4(uCol*(0.8+0.3*n), a); }`,
@@ -3033,29 +3133,33 @@ function startBomb(){
   SIM.bombT=0; camera.getWorldDirection(_v); _v.y=0; if(_v.lengthSq()<1e-4) _v.set(0,0,-1); _v.normalize();
   BOMB.dir.copy(_v); { const bx=camera.position.x+_v.x*BOMB.dist, bz=camera.position.z+_v.z*BOMB.dist; BOMB.gz.set(bx, GY(bx,bz), bz); } BOMB.arrived=false;
   mush.visible=true; fireball.visible=true; dustWall.visible=true; dustWall.position.copy(BOMB.gz);
-  BOMB.list=VAL.blastList(BOMB.gz.x, BOMB.gz.z, 470); BOMB.li=0; BOMB.killed=0;
+  BOMB.list=VAL.blastList(BOMB.gz.x, BOMB.gz.z, 470); BOMB.li=0; BOMB.killed=0; BOMB.inhaled=false;
   if(AUD.on && AUD.ctx){ const t0=AUD.ctx.currentTime, ta=t0+BOMB.dist/343; rumble(ta,1.6,1900,0.9,0.008); rumble(ta,8,85,1.0,0.06); rumble(ta+0.5,9,45,0.9,0.5);
     const c=AUD.ctx, o=c.createOscillator(), g=c.createGain(); o.frequency.setValueAtTime(48,ta); o.frequency.exponentialRampToValueAtTime(22,ta+5); g.gain.setValueAtTime(0.0001,ta); g.gain.exponentialRampToValueAtTime(0.6,ta+0.05); g.gain.exponentialRampToValueAtTime(0.0001,ta+6); o.connect(g); g.connect(AUD.master); o.start(ta); o.stop(ta+6.2);
     carAlarm(ta+1.5,10,700,950); carAlarm(ta+2.2,9,560,820); }
 }
-function endBomb(){ SIM.bombT=-1; mush.visible=false; fireball.visible=false; dustWall.visible=false; flashEl.style.opacity='0'; }
+const nukeHud=document.createElement('div'); nukeHud.id='nukeHud'; nukeHud.style.cssText='position:fixed;left:calc(16px + env(safe-area-inset-left));top:calc(150px + env(safe-area-inset-top));z-index:5;pointer-events:none;color:#fff;font:600 11px/1.35 system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;text-shadow:0 1px 4px rgba(0,0,0,.7);display:none;'; document.body.appendChild(nukeHud);
+function endBomb(){ SIM.bombT=-1; nukeHud.style.display='none'; mush.visible=false; fireball.visible=false; dustWall.visible=false; flashEl.style.opacity='0'; }
 function updateBomb(dt){
   if(SIM.bombT<0) return {light:0};
   const T=(SIM.bombT+=dt), Ta=BOMB.dist/343;
+  { const pd=Math.hypot(player.x-BOMB.gz.x, player.z-BOMB.gz.z), sw=343*T; nukeHud.style.display='block'; nukeHud.innerHTML='After the burst<br><span style="font-size:30px;letter-spacing:0;font-weight:300">+'+T.toFixed(1)+' s</span><br>You are '+(pd/1000).toFixed(2)+' km away<br><span style="color:#ffb347">Shock wave '+(sw/1000).toFixed(2)+' km'+(sw<pd?' · arriving in '+((pd-sw)/343).toFixed(1)+' s':' · passed')+'</span>'; }
   flashEl.style.opacity = T<0.12 ? '1' : String(Math.max(0, Math.exp(-(T-0.12)*1.9)));
   // fireball
-  const R=150*(1-Math.exp(-T*2.2)); fireball.scale.setScalar(Math.max(0.01,R)); fireball.position.set(BOMB.gz.x, BOMB.gz.y+R*0.85+35*T, BOMB.gz.z);
-  const heat=Math.exp(-T/3.2); fireball.material.color.setRGB(1.6, 0.55+1.0*heat, 0.15+0.9*heat*heat); fireball.material.opacity=Math.max(0, 1-Math.max(0,T-2.5)/9);
+  const R=115*(1-Math.exp(-T*2.6)); fireball.scale.setScalar(Math.max(0.01,R*2.8)); fireball.position.set(BOMB.gz.x, BOMB.gz.y+R*0.85+35*T, BOMB.gz.z);
+  const heat=Math.exp(-T/3.2); fireball.material.color.setRGB(1.6, 0.55+1.0*heat, 0.15+0.9*heat*heat); fireball.material.opacity=Math.max(0, 1-Math.max(0,T-1.0)/3.2);
   fireball.visible=fireball.material.opacity>0.01;
-  mushMat.uniforms.uT.value=T; mushMat.uniforms.uGlow.value=Math.exp(-T/7)*1.2; mushMat.uniforms.uFade.value=T<75?1:Math.max(0,1-(T-75)/45);
+  mushMat.uniforms.uT.value=T; mushMat.uniforms.uGlow.value=Math.exp(-T/2.2)*0.9; mushMat.uniforms.uFade.value=T<75?1:Math.max(0,1-(T-75)/45);
   // ground shock / dust wall racing out at the speed of sound
   const r=343*T; dustWall.scale.set(Math.max(1,r), 30+r*0.022, Math.max(1,r)); wallMat.uniforms.uT.value=T;
-  wallMat.uniforms.uOp.value = Math.min(1,T*2)*Math.max(0, 1-Math.max(0,r-BOMB.dist)/450)*0.85; dustWall.visible=wallMat.uniforms.uOp.value>0.01;
-  { let n=0; while(BOMB.li<BOMB.list.length && BOMB.list[BOMB.li].d<r && n<(MOBILE?40:80)){ const e=BOMB.list[BOMB.li++]; n++;     // the wave flattens what it reaches
-      const p = e.d<260 ? 1 : 0.9*(470-e.d)/210; if(Math.random()<p){ const ps=VAL.kill(e.it); if(ps){ BOMB.killed++; if(Math.random()<(MOBILE?0.12:0.25)) burstDebris(ps,3,1.8); if(e.d<330 && Math.random()<0.05) igniteBuilding(ps); } } } }
+  wallMat.uniforms.uOp.value = Math.min(1,T*2)*Math.max(0, 1-Math.max(0,r-BOMB.dist+120)/220)*0.7; dustWall.visible=wallMat.uniforms.uOp.value>0.01;
+  if(!BOMB.inhaled && T>0.08){ BOMB.inhaled=true; for(const e of BOMB.list){ if(e.d>140) break; const ps=VAL.kill(e.it); e.done=true; if(ps){ BOMB.killed++; shatter(ps,'inhale',BOMB.gz.x,BOMB.gz.z,26); } } }   // the fireball swallows the nearest blocks first
+  { const R2=r*r; for(const c of (typeof crowd==='function'?crowd():[])){ if(c.p.down) continue; const d2=(c.x-BOMB.gz.x)**2+(c.z-BOMB.gz.z)**2; if(d2<R2 && d2<520*520) knockDown(c.p, d2<380*380, BOMB.gz.x, BOMB.gz.z); } }
+  { let n=0; while(BOMB.li<BOMB.list.length && BOMB.list[BOMB.li].d<r && n<(MOBILE?40:80)){ const e=BOMB.list[BOMB.li++]; if(e.done) continue; n++;     // the wave flattens what it reaches
+      const p = e.d<260 ? 1 : 0.9*(470-e.d)/210; if(Math.random()<p){ const ps=VAL.kill(e.it); if(ps){ BOMB.killed++; shatter(ps,'blast',BOMB.gz.x,BOMB.gz.z,Math.max(16,80*(1-e.d/520))); if(Math.random()<(MOBILE?0.12:0.25)) burstDebris(ps,3,1.8); if(e.d<330 && Math.random()<0.05) igniteBuilding(ps); } } } }
   if(!BOMB.arrived && T>=Ta){ BOMB.arrived=true; scareBirds(player.x,player.z,500); showToast('Blast wave! Hold on…'); }
   if(T>=Ta){ const k=T-Ta; SIM.quakeAmp=Math.max(SIM.quakeAmp, 1.6*Math.exp(-k*0.9)); SIM.windRate=Math.max(SIM.windRate, 1+7*Math.exp(-k*0.35)); SIM.panicHold=Math.max(SIM.panicHold,30); }
-  SIM.haze = T<Ta ? 0 : T<16 ? Math.min(0.42,(T-Ta)/5*0.42) : Math.max(0, 0.42*(1-(T-16)/30));   // thin enough to see the flattened blocks
+  SIM.haze = T<Ta ? 0 : T<14 ? Math.min(0.16,(T-Ta)/5*0.16) : Math.max(0, 0.16*(1-(T-14)/25));   // thin enough to see the flattened blocks
   SIM.ash = T<18 ? 0 : T<60 ? Math.min(0.4,(T-18)/10*0.4) : Math.max(0,0.4*(1-(T-60)/25));
   if(T>130) endBomb();
   const light = T<0.25?1: Math.exp(-(T-0.25)/2.8);
@@ -3063,7 +3167,7 @@ function updateBomb(dt){
 }
 
 /* ---------------- atmosphere: weather layered on top of the time-of-day preset ---------------- */
-const GREY_DAY=new THREE.Color(0x8b939a), GREY_NIGHT=new THREE.Color(0x2a2f38), SNOWFOG=new THREE.Color(0xd6dce3), HAZE=new THREE.Color(0x8a6646), NIGHTF=new THREE.Color(0x070c15), GREENGLOW=new THREE.Color(0x2f8f7c);
+const GREY_DAY=new THREE.Color(0x8b939a), GREY_NIGHT=new THREE.Color(0x2a2f38), SNOWFOG=new THREE.Color(0xd6dce3), HAZE=new THREE.Color(0xa49a90), NIGHTF=new THREE.Color(0x070c15), GREENGLOW=new THREE.Color(0x2f8f7c);
 let envSig='', envT=0;
 function applyAtmos(dt, bombLight, flick){
   const P=PRESETS[presetName], oc=SIM.overcast, au=SIM.aur, hz=SIM.haze, sf=SIM.snowFall, fl=Math.min(1.5,SIM.flash), night=P.lights;
@@ -3137,10 +3241,10 @@ function updateSim(dt, t){
   updateBolts(dt); SIM.flash*=Math.exp(-dt*9);
   // earthquake
   let qa=0; if(SIM.quakeT>=0){ SIM.quakeT+=dt; qa=quakeEnv(SIM.quakeT)*1.1; dustMat.uniforms.uT.value=SIM.quakeT; if(qa>0.6){ debAcc+=dt; while(debAcc>(MOBILE?0.2:0.1)){ debAcc-=(MOBILE?0.2:0.1); spawnDebris(); } }
-    if(qa>0.55 && QKILL.length){ qkAcc+=dt; while(qkAcc>0.09 && QKILL.length){ qkAcc-=0.09; const e=QKILL.pop(); const ps=VAL.kill(e.it); if(ps){ burstDebris(ps,MOBILE?2:4,1.2); if(!quakeBlds.includes(ps)) quakeBlds.push(ps); } } }
+    if(qa>0.55 && QKILL.length){ qkAcc+=dt; while(qkAcc>0.09 && QKILL.length){ qkAcc-=0.09; const e=QKILL.pop(); const ps=VAL.kill(e.it); if(ps){ shatter(ps,'quake',camera.position.x,camera.position.z,2); burstDebris(ps,MOBILE?2:4,1.2); if(!quakeBlds.includes(ps)) quakeBlds.push(ps); } } }
     if(qa>0.3) SIM.panicHold=Math.max(SIM.panicHold,20); if(SIM.quakeT>31){ SIM.quakeT=-1; dust.visible=false; } }
   SIM.quakeAmp=Math.max(qa, SIM.quakeAmp*Math.exp(-dt*0.9)); if(SIM.quakeAmp<0.002) SIM.quakeAmp=0;
-  FX.quake.value=SIM.quakeAmp; updateDebris(dt); updateBooms(dt);
+  FX.quake.value=SIM.quakeAmp; updateDebris(dt); updateBooms(dt); updateChunks(dt);
   // flood
   const FMAX=MOBILE?1.0:1.15;
   { const inB=VAL.inBoudha(player.x,player.z);
@@ -3884,8 +3988,8 @@ function updatePlane(dt, t){
 /* ---------- fighter-jet weapons: a nose gun (tracers, damage piles up until a building collapses) and 4 missiles (blast ~26 m) ---------- */
 const FLYING=()=>DRV.type==='heli'||DRV.type==='plane'||DRV.type==='jet';
 const WPN={gun:false, cool:0, ammo:4, reload:0, side:0, rounds:[], miss:[], trail:[]};
-const TRN=160, tracers=new THREE.InstancedMesh(new THREE.BoxGeometry(0.32,0.32,14), new THREE.MeshBasicMaterial({color:0xffd27a, transparent:true, opacity:0.9, blending:THREE.AdditiveBlending, depthWrite:false, toneMapped:false, fog:false}), TRN); tracers.count=0; tracers.frustumCulled=false; scene.add(tracers);
-const TLN=MOBILE?160:360, trails=new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1,0), new THREE.MeshLambertMaterial({color:0xd8d4cc, transparent:true, opacity:0.55, depthWrite:false}), TLN); trails.count=0; trails.frustumCulled=false; scene.add(trails);
+const TRN=160, tracers=new THREE.InstancedMesh(new THREE.BoxGeometry(0.32,0.32,14), new THREE.MeshBasicMaterial({color:0xffd27a, transparent:true, opacity:0.9, blending:THREE.AdditiveBlending, depthWrite:false, toneMapped:false, fog:false}), TRN); tracers.count=0; tracers.frustumCulled=false; tracers.userData.always=true; scene.add(tracers);
+const TLN=MOBILE?160:360, trails=new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1,0), new THREE.MeshLambertMaterial({color:0xd8d4cc, transparent:true, opacity:0.55, depthWrite:false}), TLN); trails.count=0; trails.frustumCulled=false; trails.userData.always=true; scene.add(trails);
 const misGeo=new THREE.CylinderGeometry(0.13,0.13,2.9,10).rotateX(Math.PI/2), misMat=paint(0xeeeeea,0.4,0.2);
 const aimEl=document.createElement('div'); aimEl.id='jetAim'; document.body.appendChild(aimEl);
 const _wq=new THREE.Vector3(), _wf=new THREE.Vector3(), _wo=new THREE.Object3D();
@@ -3914,14 +4018,14 @@ function updateWeapons(dt, m, P){
     if(AUD.on&&AUD.ctx) noiseHit(AUD.ctx.currentTime,0.05,1800,'bandpass',0.16); }
   let n=0; const q=new THREE.Vector3();
   for(let i=WPN.rounds.length-1;i>=0;i--){ const r=WPN.rounds[i]; r.t+=dt; q.copy(r.p).addScaledVector(r.v,dt); const h=segHit(r.p,q);
-    if(h){ WPN.rounds.splice(i,1); puffTrail(h.x,h.y+0.4,h.z,h.ground?1.0:1.4); if(!h.ground){ const res=VAL.hitAt(h.x,h.y,h.z,3); if(res && res.killed){ burstDebris(res.killed,MOBILE?3:6,1.6); boom(h.x,Math.max(h.y,VAL.gy(h.x,h.z)+2),h.z,7); } } continue; }
+    if(h){ WPN.rounds.splice(i,1); puffTrail(h.x,h.y+0.4,h.z,h.ground?1.0:1.4); if(!h.ground){ const res=VAL.hitAt(h.x,h.y,h.z,3); if(res && res.killed){ shatter(res.killed,'blast',h.x-WPN.rounds.length*0,h.z,10); burstDebris(res.killed,MOBILE?3:6,1.6); boom(h.x,Math.max(h.y,VAL.gy(h.x,h.z)+2),h.z,7); } } continue; }
     r.p.copy(q); if(r.t>1.8){ WPN.rounds.splice(i,1); continue; }
     _wo.position.copy(r.p); _wo.lookAt(q.copy(r.p).add(r.v)); _wo.updateMatrix(); tracers.setMatrixAt(n++,_wo.matrix); }
   tracers.count=n; tracers.instanceMatrix.needsUpdate=true;
   // missiles: boost to ~450 m/s, smoke trail, blast knocks down everything within ~26 m
   for(let i=WPN.miss.length-1;i>=0;i--){ const M=WPN.miss[i]; M.t+=dt; const sp=M.v.length(); M.v.setLength(Math.min(460,sp+260*dt)); q.copy(M.p).addScaledVector(M.v,dt);
     const h=segHit(M.p,q);
-    if(h || M.t>9){ if(h){ boom(h.x,h.y+1,h.z,18); const dead=VAL.destroyNear(h.x,h.z,26,(d)=>d<17?1:0.65); for(let k=0;k<dead.length;k++) if(k<(MOBILE?4:8)) burstDebris(dead[k],3,2); if(dead.length && Math.random()<0.5) igniteBuilding(dead[0]);
+    if(h || M.t>9){ if(h){ boom(h.x,h.y+1,h.z,18); const dead=VAL.destroyNear(h.x,h.z,26,(d)=>d<17?1:0.65); for(let k=0;k<dead.length;k++){ shatter(dead[k],'blast',h.x,h.z,30); if(k<(MOBILE?4:8)) burstDebris(dead[k],3,2); } if(dead.length && Math.random()<0.5) igniteBuilding(dead[0]);
         const cd=camera.position.distanceTo(_wq.set(h.x,h.y,h.z)); if(cd<400) DRV.shake=Math.max(DRV.shake,0.6*(1-cd/400)); }
       scene.remove(M.mesh); WPN.miss.splice(i,1); continue; }
     M.p.copy(q); M.mesh.position.copy(q); M.mesh.lookAt(_wq.copy(q).add(M.v)); M.mesh.rotateY(Math.PI);
@@ -3938,7 +4042,7 @@ function updatePuffs(dt){
   let k=0; for(let i=WPN.trail.length-1;i>=0;i--){ const T=WPN.trail[i]; T.t+=dt; if(T.t>2.6){ WPN.trail.splice(i,1); continue; } _wo.position.set(T.x,T.y+T.t*1.2,T.z); _wo.rotation.set(0,0,0); _wo.scale.setScalar(T.s*(1+T.t*1.6)); _wo.updateMatrix(); trails.setMatrixAt(k++,_wo.matrix); }
   trails.count=k; trails.instanceMatrix.needsUpdate=true;
 }
-function jetCrash(x,z,y){ boom(x,y+2,z,26); const dead=VAL.destroyNear(x,z,30,(d)=>d<20?1:0.6); for(let k=0;k<Math.min(6,dead.length);k++) burstDebris(dead[k],3,2); WPN.gun=false; jetReset('Crashed! Back in the air above the city'); }
+function jetCrash(x,z,y){ boom(x,y+2,z,26); const dead=VAL.destroyNear(x,z,30,(d)=>d<20?1:0.6); for(let k=0;k<dead.length;k++){ shatter(dead[k],'blast',x,z,30); if(k<6) burstDebris(dead[k],3,2); } WPN.gun=false; jetReset('Crashed! Back in the air above the city'); }
 updateDrive = function(dt, t){
   if(DRV.type==='heli') return updateHeli(dt, t);
   if(DRV.type==='plane'||DRV.type==='jet') return updatePlane(dt, t);
@@ -4584,7 +4688,7 @@ function tileCol(t){
     items.push({t:0, cx, cz, ca:Math.cos(a), sa:Math.sin(a), hw, hl, minx:cx-e, maxx:cx+e, minz:cz-f, maxz:cz+f, top:gy(cx,cz)+BOX.H[i]/2+((BOX.K[i]&15)===2&&hw<8&&hl<8?Math.min(hw,hl)*0.9:0), id:i, tl:t}); }
   for(let i=POLY.start[t];i<POLY.start[t+1];i++){ const p=POLY.list[i]; let minx=1e9,maxx=-1e9,minz=1e9,maxz=-1e9; for(const q of p.ring){ minx=Math.min(minx,q[0]); maxx=Math.max(maxx,q[0]); minz=Math.min(minz,q[1]); maxz=Math.max(maxz,q[1]); }
     items.push({t:1, poly:p.ring, minx,maxx,minz,maxz, top:gy(p.cx,p.cz)+p.h, id:NBX+i, tl:t}); }
-  for(const it of items) if(DEAD[it.id]){ const c=itemC(it), g=gy(c[0],c[1]); it.top=g+Math.min(4,1.2+Math.max(0,it.top-g)*0.12); it.dead=true; }
+  for(const it of items) if(DEAD[it.id]){ const c=itemC(it), g=gy(c[0],c[1]); it.top=g+Math.min(1.7,0.7+Math.max(0,it.top-g)*0.05); it.dead=true; }
   const G=24, NG=Math.ceil(TILE/G)+4, grid=new Array(NG*NG);
   for(const it of items){ for(let gx=Math.floor((it.minx-ox)/G)+2; gx<=Math.floor((it.maxx-ox)/G)+2; gx++) for(let gz=Math.floor((it.minz-oz)/G)+2; gz<=Math.floor((it.maxz-oz)/G)+2; gz++){ if(gx<0||gz<0||gx>=NG||gz>=NG) continue; (grid[gz*NG+gx]=grid[gz*NG+gx]||[]).push(it); } }
   c={grid, ox, oz, G, NG, items}; COL.set(t,c); if(COL.size>(MOBILE?60:160)){ COL.delete(COL.keys().next().value); } return c; }
@@ -4620,7 +4724,7 @@ function buildBld(t, lod){
   const pushV=(x,y,z,c,top,h,kd,nx,ny,nz,u)=>{ P.push(x-cx0,y,z-cz0); C.push(c[0]*255|0,c[1]*255|0,c[2]*255|0); TH.push(top,h); KD.push(kd); if(near){ Nn.push(nx,ny,nz); Uu.push(u); } return nv++; };
   const tanks=[], mumty=[];
   const one=(ring, cx, cz, h, k, i, smallTemple)=>{
-    const di=i<1e6?i:NBX+(i-1e6), dead=DEAD[di]===1; if(dead){ h=Math.min(4,1.2+h*0.12); k=(k&~15)|10; smallTemple=null; }
+    const di=i<1e6?i:NBX+(i-1e6), dead=DEAD[di]===1; if(dead){ h=Math.min(1.7,0.7+h*0.05); k=(k&~15)|10; smallTemple=null; }
     const cat=k&15; let gmin=1e9; for(const q of ring) gmin=Math.min(gmin, gy(q[0],q[1]));
     const g0=gy(cx,cz), top=g0+h, bot=gmin-0.6;
     const nw=inZones(NZ,cx,cz), strip=inZones(STRIP_ZONES,cx,cz);
@@ -5401,8 +5505,10 @@ const PSEUDO=new WeakMap();
 /* ---------------- destruction (A-bomb, earthquake, fighter jet): a collapsed building is redrawn as a low rubble mound.
    State is one byte per building; Restore clears it and rebuilds the loaded tiles. ---------------- */
 function itemC(it){ return it.t===0?[it.cx,it.cz]:[(it.minx+it.maxx)/2,(it.minz+it.maxz)/2]; }
-function killItem(it){ if(it.dead||DEAD[it.id]){ it.dead=true; return null; } const ps=pseudoOf(it), c=itemC(it), g=gy(c[0],c[1]);
-  DEAD[it.id]=1; deadN++; ps.oldTop=it.top; it.top=g+Math.min(4,1.2+Math.max(0,it.top-g)*0.12); it.dead=true; ps.wallTop=it.top; ps.dead=true; DIRTY.add(it.tl); return ps; }
+function bldColour(id,cx,cz){ let cat,h,ix; if(id<NBX){ cat=BOX.K[id]&15; h=BOX.H[id]/2; ix=id; } else { const p=POLY.list[id-NBX]; cat=p.k&15; h=p.h; ix=1e6+(id-NBX); }
+  const ch=bChar(ix,cat,h,inZones(NZ,cx,cz),inZones(STRIP_ZONES,cx,cz)); return (ch.style===1||ch.style===2) ? [0.42,0.14,0.08] : ch.col; }   // brick styles: fired-brick red
+function killItem(it){ if(it.dead||DEAD[it.id]){ it.dead=true; return null; } const ps=pseudoOf(it), c=itemC(it), g=gy(c[0],c[1]); try{ ps.col=bldColour(it.id,c[0],c[1]); }catch(_){ ps.col=[0.6,0.56,0.5]; }
+  DEAD[it.id]=1; deadN++; ps.oldTop=it.top; it.top=g+Math.min(1.7,0.7+Math.max(0,it.top-g)*0.05); it.dead=true; ps.wallTop=it.top; ps.dead=true; DIRTY.add(it.tl); return ps; }
 function blastList(x,z,R){ const out=[]; if(inBoudha(x,z)&&R<50) return out; const t0x=Math.floor((x-R-X0)/TILE), t1x=Math.floor((x+R-X0)/TILE), t0z=Math.floor((z-R-Z0)/TILE), t1z=Math.floor((z+R-Z0)/TILE);
   for(let tz=t0z;tz<=t1z;tz++) for(let tx=t0x;tx<=t1x;tx++){ if(tx<0||tz<0||tx>=NT||tz>=NT) continue; const c=tileCol(tz*NT+tx);
     for(const it of c.items){ if(it.dead) continue; const p=itemC(it), d=Math.hypot(p[0]-x,p[1]-z); if(d<R && !inBoudha(p[0],p[1])) out.push({it,d,h:it.top-gy(p[0],p[1])}); } }
@@ -5537,7 +5643,7 @@ function swimState(){ const w=(mode==='walk')?waterInfo(player.x,player.z):null;
 function eyeY(x,z,eye,t){ const w=swimState(); if(w&&w.deep) return w.y+0.32+Math.sin(t*1.6)*0.05; if(w) return gy(x,z)+eye-0.3; return gy(x,z)+eye; }
 function walkK(){ const w=waterInfo(player.x,player.z); return w?(w.deep?0.42:0.65):1; }
 /* Boudha's crowd, pigeons, flags and traffic are never frustum-culled; skip drawing them when you are far from the stupa */
-const BOUDHA_LIFE=[]; scene.traverse(o=>{ if(o.isInstancedMesh && o.frustumCulled===false && o!==debris && o!==junk && o.name!=='valleyTraffic' && o.name!=='valleyPeople') BOUDHA_LIFE.push(o); });
+const BOUDHA_LIFE=[]; scene.traverse(o=>{ if(o.isInstancedMesh && o.frustumCulled===false && o!==debris && o!==junk && !o.userData.always && o.name!=='valleyTraffic' && o.name!=='valleyPeople') BOUDHA_LIFE.push(o); });
 let boudhaHidden=false;
 function boudhaLOD(){ const far=Math.hypot(camera.position.x,camera.position.z)>1100; if(far===boudhaHidden) return; boudhaHidden=far;
   for(const o of BOUDHA_LIFE){ if(far){ o.userData.vWas=o.visible; o.visible=false; } else o.visible=o.userData.vWas!==undefined?o.userData.vWas:true; } }
@@ -5587,6 +5693,7 @@ function animate(){
     updateTraffic(dt);
     poseAll(t, dt, camera.position.x, camera.position.z);
     updateBirds(dt, t, running);
+    updateDogs(dt, t);
     if(flutterQueue>0){ sfxFlutter(flutterQueue); flutterQueue=0; }
     // prayer wheels: spun by passing pilgrims, slowly coasting to a stop
     if(wheelMesh){
