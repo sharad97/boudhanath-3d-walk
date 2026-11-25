@@ -3350,8 +3350,9 @@ button,a,.act,.simT{touch-action:manipulation;}
   #speedo{left:auto;right:70px;transform:none;bottom:calc(20px + env(safe-area-inset-bottom));}
 }
 @media (pointer:coarse) and (max-height:500px){
-  #actions{flex-wrap:wrap-reverse;max-height:calc(100vh - 24px - env(safe-area-inset-bottom));align-content:flex-start;}
-  #simPanel,#drivePanel{top:12px;width:min(340px,calc(100vw - 200px));max-height:calc(100vh - 24px);overflow:auto;left:calc(150px + env(safe-area-inset-left));}
+  #actions{flex-wrap:wrap-reverse;max-height:calc(100vh - 24px - env(safe-area-inset-bottom));max-height:calc(100dvh - 24px - env(safe-area-inset-bottom));align-content:flex-start;gap:5px;}
+  #actions .act{width:42px;height:42px;}
+  #simPanel,#drivePanel{top:12px;width:min(340px,calc(100vw - 200px));max-height:calc(100vh - 24px);max-height:calc(100dvh - 24px);overflow:auto;left:calc(150px + env(safe-area-inset-left));}
   #mapWrap{display:none;}
   #titleCard{max-width:280px;}
   #speedo{right:calc(124px + env(safe-area-inset-right));}
