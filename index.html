@@ -1585,7 +1585,7 @@ const SURVEY = {
 loaderMsg('Raising 768 buildings from OpenStreetMap…'); await tick();
 const DEC={};
 /* ---------- geometry builder (indexed, flat quads) ---------- */
-class GB{ constructor(){ this.p=[]; this.n=[]; this.u=[]; this.c=[]; this.i=[]; this.v=0; }
+class GB{ constructor(){ this.p=[]; this.n=[]; this.u=[]; this.c=[]; this.i=[]; this.v=0; this.ranges=[]; this.firstVertex=0; this.firstIndex=0; }
   quad(a,b,c,d,nrm,uvs,col){ // a,b,c,d corners in order around; winding auto-fixed to face nrm
     const e1=[b[0]-a[0],b[1]-a[1],b[2]-a[2]], e2=[c[0]-a[0],c[1]-a[1],c[2]-a[2]];
     const cr=[e1[1]*e2[2]-e1[2]*e2[1], e1[2]*e2[0]-e1[0]*e2[2], e1[0]*e2[1]-e1[1]*e2[0]];
@@ -1597,8 +1597,65 @@ class GB{ constructor(){ this.p=[]; this.n=[]; this.u=[]; this.c=[]; this.i=[]; 
     if(((e1[1]*e2[2]-e1[2]*e2[1])*nrm[0]+(e1[2]*e2[0]-e1[0]*e2[2])*nrm[1]+(e1[0]*e2[1]-e1[1]*e2[0])*nrm[2])<0){ const t=b; b=c; c=t; const tu=uvs[1]; uvs=[uvs[0],uvs[2],tu]; }
     for(const [p,uv] of [[a,uvs[0]],[b,uvs[1]],[c,uvs[2]]]){ this.p.push(p[0],p[1],p[2]); this.n.push(nrm[0],nrm[1],nrm[2]); this.u.push(uv[0],uv[1]); this.c.push(col[0],col[1],col[2]); }
     const v=this.v; this.i.push(v,v+1,v+2); this.v+=3; }
-  geo(){ const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.Float32BufferAttribute(this.p,3)); g.setAttribute('normal',new THREE.Float32BufferAttribute(this.n,3));
-    g.setAttribute('uv',new THREE.Float32BufferAttribute(this.u,2)); g.setAttribute('color',new THREE.Float32BufferAttribute(this.c,3)); g.setIndex(this.v>65535? new THREE.Uint32BufferAttribute(this.i,1) : new THREE.Uint16BufferAttribute(this.i,1)); return g; } }
+  endHouse(house){
+    if(this.firstIndex===this.i.length) return;
+    this.ranges.push({house, firstVertex:this.firstVertex, vertexCount:this.v-this.firstVertex,
+      firstIndex:this.firstIndex, indexCount:this.i.length-this.firstIndex});
+    this.firstVertex=this.v;
+    this.firstIndex=this.i.length;
+  }
+  geo(hideOnCut=false){
+    const g=new THREE.BufferGeometry();
+    const position=new THREE.Float32BufferAttribute(this.p,3).setUsage(THREE.DynamicDrawUsage);
+    const index=(this.v>65535 ? new THREE.Uint32BufferAttribute(this.i,1) : new THREE.Uint16BufferAttribute(this.i,1)).setUsage(THREE.DynamicDrawUsage);
+    g.setAttribute('position',position);
+    g.setAttribute('normal',new THREE.Float32BufferAttribute(this.n,3));
+    g.setAttribute('uv',new THREE.Float32BufferAttribute(this.u,2));
+    g.setAttribute('color',new THREE.Float32BufferAttribute(this.c,3));
+    g.setIndex(index);
+    for(const {house, ...range} of this.ranges){ house.surfaces.push({...range, position, index, hideOnCut}); }
+    return g;
+  }
+}
+
+/* Each house occupies its own ranges in the shared meshes. Apply the same
+   geometry change to the visible surfaces, shadows and raycasts. */
+function setHouseSurfaces(house, top, dead){
+  for(const s of house.surfaces){
+    if(dead || s.hideOnCut){
+      if(s.originalIndices) continue;
+      const end=s.firstIndex+s.indexCount;
+      s.originalIndices=s.index.array.slice(s.firstIndex,end);
+      s.index.array.fill(s.firstVertex,s.firstIndex,end);
+      s.index.addUpdateRange(s.firstIndex,s.indexCount);
+      s.index.needsUpdate=true;
+      continue;
+    }
+    if(!s.originalY){
+      s.originalY=new Float32Array(s.vertexCount);
+      for(let i=0;i<s.vertexCount;i++) s.originalY[i]=s.position.getY(s.firstVertex+i);
+    }
+    for(let i=0;i<s.vertexCount;i++) s.position.setY(s.firstVertex+i,Math.min(top,s.originalY[i]));
+    s.position.addUpdateRange(s.firstVertex*3,s.vertexCount*3);
+    s.position.needsUpdate=true;
+  }
+}
+function restoreHouseSurfaces(house){
+  for(const s of house.surfaces){
+    if(s.originalIndices){
+      s.index.array.set(s.originalIndices,s.firstIndex);
+      s.index.addUpdateRange(s.firstIndex,s.indexCount);
+      s.index.needsUpdate=true;
+      s.originalIndices=null;
+    }
+    if(s.originalY){
+      for(let i=0;i<s.vertexCount;i++) s.position.setY(s.firstVertex+i,s.originalY[i]);
+      s.position.addUpdateRange(s.firstVertex*3,s.vertexCount*3);
+      s.position.needsUpdate=true;
+      s.originalY=null;
+    }
+  }
+}
 
 /* ---------- spatial grid of building footprints (collision, occlusion probes) ---------- */
 const buildingColliders = []; // {poly, minx,maxx,minz,maxz, b}
@@ -1606,7 +1663,7 @@ const GRID=16, bGrid=new Map(), EMPTY=[];
 const gk=(ix,iz)=>ix*100003+iz;
 function gridAdd(o){ for(let ix=Math.floor(o.minx/GRID); ix<=Math.floor(o.maxx/GRID); ix++) for(let iz=Math.floor(o.minz/GRID); iz<=Math.floor(o.maxz/GRID); iz++){ const k=gk(ix,iz); let a=bGrid.get(k); if(!a){ a=[]; bGrid.set(k,a); } a.push(o); } }
 function gridAt(x,z){ return bGrid.get(gk(Math.floor(x/GRID),Math.floor(z/GRID)))||EMPTY; }
-function buildingAt(x,z,except){ for(const c of gridAt(x,z)){ if(c===except) continue; if(x>c.minx&&x<c.maxx&&z>c.minz&&z<c.maxz&&pointInPoly(x,z,c.poly)) return c; } return null; }
+function buildingAt(x,z,except){ for(const c of gridAt(x,z)){ if(c===except || (c.b && c.b.dead)) continue; if(x>c.minx&&x<c.maxx&&z>c.minz&&z<c.maxz&&pointInPoly(x,z,c.poly)) return c; } return null; }
 /* road proximity grid (for "is this facade on a street?") */
 const rGrid=new Map();
 for(const r of OSM.r){ const pts=r[0]; if(r[1]==='steps') continue; for(let i=0;i<pts.length-1;i++){ const a=pts[i], b=pts[i+1];
@@ -1662,6 +1719,7 @@ for(const b of OSM.b){
 await tick();
 /* ---------- walls, parapets, roofs, facades ---------- */
 const wallsPl=new GB(), wallsBr=new GB(), roofs=new GB(), metalRoofs=new GB(), decWin=new GB(), decShop=new GB(), steps=new GB();
+const houseBuilders=[wallsPl,wallsBr,roofs,metalRoofs,decWin,decShop,steps];
 const PROPS = { balcony:[], ac:[], awnStriped:[], awnSolid:[], table:[], scarf:[], tank:[], dish:[], solar:[], umbrella:[], flagPole:[], monGold:[], shopBays:[], wireAnchors:[] };
 const cellUV=(i, cells, size, padPx)=>{ const cs=1/cells, col=i%cells, row=Math.floor(i/cells), p=padPx/size;
   const u0=col*cs+p, u1=(col+1)*cs-p, vT=1-row*cs-p, vB=1-(row+1)*cs+p; return [[u0,vB],[u1,vB],[u1,vT],[u0,vT]]; };
@@ -1669,6 +1727,7 @@ const signUV=(s)=>{ const x=(s%4)*512, y=1536+Math.floor(s/4)*128; const p=2/204
 const C_WHITE=[1,1,1];
 function hexRGB(h){ const c=new THREE.Color(h); return [c.r,c.g,c.b]; }
 for(const b of BLD){
+  b.surfaces=[];
   const {pts,h,r}=b, n=pts.length;
   const PARA = 0.9;
   const wallTop = h+PARA;
@@ -1728,10 +1787,10 @@ for(const b of BLD){
         const sx0=px-rx*bw/2, sz0=pz-rz*bw/2, sx1=px+rx*bw/2, sz1=pz+rz*bw/2, so=0.42;
         steps.quad([sx0,0.17,sz0],[sx1,0.17,sz1],[sx1+nx*so,0.17,sz1+nz*so],[sx0+nx*so,0.17,sz0+nz*so],[0,1,0],[[0,0],[1,0],[1,0.2],[0,0.2]],C_WHITE);
         steps.quad([sx0+nx*so,0,sz0+nz*so],[sx1+nx*so,0,sz1+nz*so],[sx1+nx*so,0.17,sz1+nz*so],[sx0+nx*so,0.17,sz0+nz*so],nrm,[[0,0],[1,0],[1,0.05],[0,0.05]],[0.8,0.8,0.8]);
-        if(r()<0.6) (r()<0.65?PROPS.awnStriped:PROPS.awnSolid).push({x:px+nx*0.05, z:pz+nz*0.05, y:b.groundH-0.78, yaw, w:bw-0.15, col:pick(r,['#2f7a4a','#b3261e','#2a4f8a','#d8a83a','#7a4a2a','#4a4a4a','#c76a2a'])});
-        if((st===1||st===14||st===0||st===3) && r()<0.5) PROPS.table.push({x:px+nx*0.85, z:pz+nz*0.85, yaw, w:Math.min(bw-0.6,2)});
-        if((st===2||st===10) && r()<0.75) PROPS.scarf.push({x:px+nx*0.3, z:pz+nz*0.3, y:b.groundH-0.9, yaw, w:bw-0.4});
-        if(b.dist<110 && r()<0.4) PROPS.wireAnchors.push([px+nx*0.1, 5.2+r()*1.6, pz+nz*0.1, Math.atan2(px,pz)]);
+        if(r()<0.6) (r()<0.65?PROPS.awnStriped:PROPS.awnSolid).push({house:b, x:px+nx*0.05, z:pz+nz*0.05, y:b.groundH-0.78, yaw, w:bw-0.15, col:pick(r,['#2f7a4a','#b3261e','#2a4f8a','#d8a83a','#7a4a2a','#4a4a4a','#c76a2a'])});
+        if((st===1||st===14||st===0||st===3) && r()<0.5) PROPS.table.push({house:b, x:px+nx*0.85, z:pz+nz*0.85, yaw, w:Math.min(bw-0.6,2)});
+        if((st===2||st===10) && r()<0.75) PROPS.scarf.push({house:b, x:px+nx*0.3, z:pz+nz*0.3, y:b.groundH-0.9, yaw, w:bw-0.4});
+        if(b.dist<110 && r()<0.4) PROPS.wireAnchors.push({house:b, x:px+nx*0.1, y:5.2+r()*1.6, z:pz+nz*0.1, angle:Math.atan2(px,pz)});
       } else {
         const cell = (r()<0.3 && b.h>5) ? WSTYLE.door : floorWin[0];
         decWin.quad([lx,0,lz],[Rx,0,Rz],[Rx,b.groundH,Rz],[lx,b.groundH,lz], nrm, cellUV(cell,8,2048,2), C_WHITE);
@@ -1740,10 +1799,10 @@ for(const b of BLD){
         const y0=b.groundH+(f-1)*b.floorH, y1=y0+b.floorH; if(y1>h+0.05) break;
         let cell=floorWin[f];
         const isBalc = (f===balconyRow && r()<0.85) || (f>=1 && r()<0.05 && b.style!=='glass');
-        if(isBalc){ cell=pick(r,WSTYLE.balcony); PROPS.balcony.push({x:px+nx*0.6, z:pz+nz*0.6, y:y0, yaw, w:Math.min(bw-0.3,3.0)}); }
+        if(isBalc){ cell=pick(r,WSTYLE.balcony); PROPS.balcony.push({house:b, x:px+nx*0.6, z:pz+nz*0.6, y:y0, yaw, w:Math.min(bw-0.3,3.0)}); }
         else if(r()<0.06) cell=pick(r,WSTYLE.misc);
         decWin.quad([lx,y0,lz],[Rx,y0,Rz],[Rx,y1,Rz],[lx,y1,lz], nrm, cellUV(cell,8,2048,2), C_WHITE);
-        if(!isBalc && (b.style==='modern'||b.style==='glass') && r()<0.08) PROPS.ac.push({x:px+rx*bw*0.3+nx*0.2, z:pz+rz*bw*0.3+nz*0.2, y:y0+0.15, yaw});
+        if(!isBalc && (b.style==='modern'||b.style==='glass') && r()<0.08) PROPS.ac.push({house:b, x:px+rx*bw*0.3+nx*0.2, z:pz+rz*bw*0.3+nz*0.2, y:y0+0.15, yaw});
       }
       if(b.isMon && b.h>5){ const y1=h, y0=h-1.1; decWin.quad([lx,y0,lz],[Rx,y0,Rz],[Rx,y1,Rz],[lx,y1,lz], nrm, cellUV(WSTYLE.frieze,8,2048,4), C_WHITE); }
     }
@@ -1782,6 +1841,7 @@ for(const b of BLD){
     }
   }
   b.wallTop=wallTop;
+  for(const builder of houseBuilders) builder.endHouse(b);
 }
 await tick();
 (function addBuildingMeshes(){
@@ -1790,7 +1850,7 @@ await tick();
   for(const [gb,mat] of [[wallsPl,pm],[wallsBr,bm]]){ if(!gb.v) continue; const m=new THREE.Mesh(gb.geo(),mat); m.castShadow=m.receiveShadow=true; scene.add(m); }
   const roofMat=new THREE.MeshStandardMaterial({vertexColors:true, map:TEX.roof, normalMap:TEX.roofN, roughness:0.95, side:THREE.DoubleSide});
   if(roofs.v){ const m=new THREE.Mesh(roofs.geo(),roofMat); m.receiveShadow=true; m.castShadow=true; scene.add(m); }
-  if(metalRoofs.v){ const m=new THREE.Mesh(metalRoofs.geo(), new THREE.MeshStandardMaterial({vertexColors:true, map:TEX.metal, normalMap:TEX.metalN, roughness:0.5, metalness:0.35, side:THREE.DoubleSide})); m.castShadow=m.receiveShadow=true; scene.add(m); }
+  if(metalRoofs.v){ const m=new THREE.Mesh(metalRoofs.geo(true), new THREE.MeshStandardMaterial({vertexColors:true, map:TEX.metal, normalMap:TEX.metalN, roughness:0.5, metalness:0.35, side:THREE.DoubleSide})); m.castShadow=m.receiveShadow=true; scene.add(m); }
   const decMat=(map,emis)=>{ const m=new THREE.MeshStandardMaterial({map, emissiveMap:emis, emissive:0xffffff, emissiveIntensity:0, alphaTest:0.5, roughness:0.55, metalness:0.0, envMapIntensity:0.9, polygonOffset:true, polygonOffsetFactor:-2, polygonOffsetUnits:-2, side:THREE.DoubleSide}); return m; };
   DEC.win=decMat(winTex,winEmis); DEC.shop=decMat(shopTex,shopEmis);
   if(decWin.v){ const m=new THREE.Mesh(decWin.geo(),DEC.win); m.receiveShadow=true; scene.add(m); }
@@ -1804,13 +1864,45 @@ loaderMsg('Rooftop tanks, awnings, wires and motorbikes…'); await tick();
 const CAST_SMALL=!MOBILE; // phones: small props skip the shadow pass
 /* ---------- static prop colliders (circles in a grid) ---------- */
 const pGrid=new Map();
-function addCollider(x,z,r){ const o={x,z,r}; for(let ix=Math.floor((x-r)/GRID); ix<=Math.floor((x+r)/GRID); ix++) for(let iz=Math.floor((z-r)/GRID); iz<=Math.floor((z+r)/GRID); iz++){ const k=gk(ix,iz); let a=pGrid.get(k); if(!a){ a=[]; pGrid.set(k,a);} a.push(o); } }
+function addCollider(x,z,r,house){ const o={x,z,r,house}; for(let ix=Math.floor((x-r)/GRID); ix<=Math.floor((x+r)/GRID); ix++) for(let iz=Math.floor((z-r)/GRID); iz<=Math.floor((z+r)/GRID); iz++){ const k=gk(ix,iz); let a=pGrid.get(k); if(!a){ a=[]; pGrid.set(k,a);} a.push(o); } }
 for(const c of GATE_COLLIDERS) addCollider(c[0],c[1],c[2]);   // Baudha Gate pillars, lion pedestals, bollards
 const dummy=new THREE.Object3D();
+const hiddenHouseProp=new THREE.Matrix4().makeScale(0,0,0);
+function setHouseProps(b, top, dead){
+  for(const prop of b.props||EMPTY){
+    const visible=!dead && prop.y<top;
+    if(visible===prop.visible) continue;
+    prop.visible=visible;
+    prop.mesh.setMatrixAt(prop.index,visible?prop.matrix:hiddenHouseProp);
+    prop.mesh.instanceMatrix.addUpdateRange(prop.index*16,16);
+    prop.mesh.instanceMatrix.needsUpdate=true;
+  }
+  for(const wire of b.wires||EMPTY){
+    const visible=wire.anchors.every(a=>a.house===b
+      ? !dead && a.y<=top
+      : !a.house.dead && (a.house.wallTop0==null || a.y<=a.house.wallTop));
+    if(visible===wire.visible) continue;
+    wire.visible=visible;
+    const count=wire.original.length;
+    if(visible) wire.position.array.set(wire.original,wire.start);
+    else wire.position.array.fill(-999,wire.start,wire.start+count);
+    wire.position.addUpdateRange(wire.start,count);
+    wire.position.needsUpdate=true;
+  }
+}
+function restoreHouseProps(b){ setHouseProps(b, Infinity, false); }
 function instanced(geo, mat, list, set, opts){
   if(!list.length) return null; opts=opts||{};
   const im=new THREE.InstancedMesh(geo, mat, list.length);
-  list.forEach((it,i)=>{ dummy.position.set(0,0,0); dummy.rotation.set(0,0,0); dummy.scale.set(1,1,1); const c=set(dummy,it,i); dummy.updateMatrix(); im.setMatrixAt(i,dummy.matrix); if(c) im.setColorAt(i,c); });
+  list.forEach((it,i)=>{
+    dummy.position.set(0,0,0); dummy.rotation.set(0,0,0); dummy.scale.set(1,1,1);
+    const c=set(dummy,it,i);
+    dummy.updateMatrix(); im.setMatrixAt(i,dummy.matrix); if(c) im.setColorAt(i,c);
+    if(it.house){
+      const props=it.house.props||(it.house.props=[]);
+      props.push({mesh:im, index:i, matrix:dummy.matrix.clone(), y:it.y??dummy.position.y, visible:true});
+    }
+  });
   if(im.instanceColor) im.instanceColor.needsUpdate=true;
   im.castShadow=!!opts.cast; im.receiveShadow=opts.receive!==false; scene.add(im); return im;
 }
@@ -1822,19 +1914,22 @@ function randomRoofPoint(b, inset){ for(let k=0;k<14;k++){ const x=b.minx+0.3+b.
   for(const b of BLD){
     const r=b.r; if(b.h<5) continue;
     let tankY=b.h, tankAt=null;
-    if(!b.hip && b.area>45 && r()<0.6){ const p=randomRoofPoint(b,1.6); if(p){ const w=2.4+r()*0.8, d=2.4+r()*0.8, hh=2.5; const g=new THREE.BoxGeometry(w,hh,d); g.rotateY(r()*0.2); g.translate(p[0],b.h+hh/2,p[1]);
-      vcol(g, b.brick? [0.62,0.36,0.28] : hexRGB(b.tint||'#eeeeee')); mumty.push(g); tankAt=p; tankY=b.h+hh; } }
+    if(!b.hip && b.area>45 && r()<0.6){ const p=randomRoofPoint(b,1.6); if(p){ const w=2.4+r()*0.8, d=2.4+r()*0.8, h=2.5, yaw=r()*0.2;
+      mumty.push({house:b, x:p[0], y:b.h, z:p[1], w, h, d, yaw, col:b.brick?[0.62,0.36,0.28]:hexRGB(b.tint||'#eeeeee')}); tankAt=p; tankY=b.h+h; } }
     if(MOBILE && b.dist>170) continue;                        // phones: far rooftops keep only their stair houses
     const nt = b.hip ? 0 : (b.area>120? 2 : 1) + (r()<0.3?1:0);
     for(let k=0;k<nt;k++){ let p = (k===0 && tankAt) ? [tankAt[0]+(r()-0.5)*1.2, tankAt[1]+(r()-0.5)*1.2] : randomRoofPoint(b,0.9); if(!p) continue;
-      const y = (k===0 && tankAt) ? tankY : b.h; const t=r(); PROPS.tank.push({x:p[0], y, z:p[1], s:0.85+r()*0.4, col: t<0.72?0x1d1f22 : t<0.88?0x2d62a6:0xe6e6e0}); }
-    if(!b.hip && r()<0.4){ const p=randomRoofPoint(b,0.6); if(p) PROPS.dish.push({x:p[0], y:b.h, z:p[1], yaw:Math.PI+(r()-0.5)*0.8}); }
-    if(!b.hip && r()<0.18){ const p=randomRoofPoint(b,1.2); if(p) PROPS.solar.push({x:p[0], y:b.h, z:p[1], yaw:Math.PI+(r()-0.5)*0.4}); }
-    if(!b.hip && b.dist<100 && r()<0.3){ const nU=2+Math.floor(r()*3); for(let k=0;k<nU;k++){ const p=randomRoofPoint(b,1.6); if(p) PROPS.umbrella.push({x:p[0], y:b.h, z:p[1], col:pick(r,['#2a6fb0','#7a1f2c','#2f7a4a','#e8e0cc','#c8321f'])}); } }
-    if(b.dist<150 && r()<0.12){ const p=randomRoofPoint(b,0.8); if(p) PROPS.flagPole.push({x:p[0], y:b.h, z:p[1], h:4.6}); }
-    if(b.isMon){ for(let i=0;i<b.pts.length && i<6;i++){ const p=b.pts[i], dx=b.c[0]-p[0], dz=b.c[1]-p[1], d=Math.hypot(dx,dz)||1; PROPS.monGold.push({x:p[0]+dx/d*0.5, y:b.wallTop, z:p[1]+dz/d*0.5}); } }
+      const y = (k===0 && tankAt) ? tankY : b.h; const t=r(); PROPS.tank.push({house:b, x:p[0], y, z:p[1], s:0.85+r()*0.4, col: t<0.72?0x1d1f22 : t<0.88?0x2d62a6:0xe6e6e0}); }
+    if(!b.hip && r()<0.4){ const p=randomRoofPoint(b,0.6); if(p) PROPS.dish.push({house:b, x:p[0], y:b.h, z:p[1], yaw:Math.PI+(r()-0.5)*0.8}); }
+    if(!b.hip && r()<0.18){ const p=randomRoofPoint(b,1.2); if(p) PROPS.solar.push({house:b, x:p[0], y:b.h, z:p[1], yaw:Math.PI+(r()-0.5)*0.4}); }
+    if(!b.hip && b.dist<100 && r()<0.3){ const nU=2+Math.floor(r()*3); for(let k=0;k<nU;k++){ const p=randomRoofPoint(b,1.6); if(p) PROPS.umbrella.push({house:b, x:p[0], y:b.h, z:p[1], col:pick(r,['#2a6fb0','#7a1f2c','#2f7a4a','#e8e0cc','#c8321f'])}); } }
+    if(b.dist<150 && r()<0.12){ const p=randomRoofPoint(b,0.8); if(p) PROPS.flagPole.push({house:b, x:p[0], y:b.h, z:p[1], h:4.6}); }
+    if(b.isMon){ for(let i=0;i<b.pts.length && i<6;i++){ const p=b.pts[i], dx=b.c[0]-p[0], dz=b.c[1]-p[1], d=Math.hypot(dx,dz)||1; PROPS.monGold.push({house:b, x:p[0]+dx/d*0.5, y:b.wallTop, z:p[1]+dz/d*0.5}); } }
   }
-  if(mumty.length){ const m=new THREE.Mesh(BGU.mergeGeometries(mumty), new THREE.MeshStandardMaterial({vertexColors:true, map:TEX.plaster, roughness:0.92})); m.castShadow=m.receiveShadow=true; scene.add(m); }
+  instanced(new THREE.BoxGeometry(1,1,1), new THREE.MeshStandardMaterial({map:TEX.plaster, roughness:0.92}), mumty, (d,t)=>{
+    d.position.set(t.x,t.y+t.h/2,t.z); d.rotation.y=t.yaw; d.scale.set(t.w,t.h,t.d);
+    return tmpCol.setRGB(...t.col);
+  },{cast:true});
   const tankG=mergeVC([[new THREE.CylinderGeometry(0.58,0.6,1.25,9,1).translate(0,0.625,0),[1,1,1]],[new THREE.CylinderGeometry(0.2,0.2,0.12,6,1,true).translate(0,1.31,0),[0.8,0.8,0.8]]]);
   instanced(tankG, new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.55}), PROPS.tank, (d,t)=>{ d.position.set(t.x,t.y,t.z); d.scale.setScalar(t.s); return tmpCol.set(t.col); }, {cast:CAST_SMALL});
   const dishG=mergeVC([[new THREE.SphereGeometry(0.42,9,4,0,Math.PI*2,0,0.75).rotateX(-Math.PI/2-0.6).translate(0,0.95,0),[0.95,0.95,0.93]],[new THREE.CylinderGeometry(0.03,0.03,0.95,6).translate(0,0.48,0),[0.4,0.4,0.4]],[new THREE.CylinderGeometry(0.015,0.015,0.5,4).rotateX(0.9).translate(0,1.0,0.22),[0.3,0.3,0.3]]]);
@@ -1859,7 +1954,7 @@ function randomRoofPoint(b, inset){ for(let k=0;k<14;k++){ const x=b.minx+0.3+b.
   const awSet=(d,t)=>{ d.position.set(t.x,t.y,t.z); d.rotation.y=t.yaw; d.scale.set(t.w,1,1); return tmpCol.set(t.col); };
   instanced(awG, awMat(TEX.awning), PROPS.awnStriped, awSet, {cast:CAST_SMALL});
   instanced(awG, awMat(TEX.awningSolid), PROPS.awnSolid, awSet, {cast:CAST_SMALL});
-  instanced(new THREE.BoxGeometry(1,0.78,0.62), new THREE.MeshStandardMaterial({map:TEX.goods, roughness:0.8}), PROPS.table, (d,t)=>{ d.position.set(t.x,0.39,t.z); d.rotation.y=t.yaw; d.scale.set(t.w,1,1); addCollider(t.x,t.z,0.6); }, {cast:CAST_SMALL});
+  instanced(new THREE.BoxGeometry(1,0.78,0.62), new THREE.MeshStandardMaterial({map:TEX.goods, roughness:0.8}), PROPS.table, (d,t)=>{ d.position.set(t.x,0.39,t.z); d.rotation.y=t.yaw; d.scale.set(t.w,1,1); addCollider(t.x,t.z,0.6,t.house); }, {cast:CAST_SMALL});
   instanced(new THREE.PlaneGeometry(1,1.5).translate(0,-0.75,0), new THREE.MeshStandardMaterial({map:TEX.scarves, alphaTest:0.5, side:THREE.DoubleSide, roughness:0.95}), PROPS.scarf, (d,t)=>{ d.position.set(t.x,t.y,t.z); d.rotation.y=t.yaw; d.scale.set(t.w,1,1); });
 })();
 /* ---------- tall darchor poles inside the wall, and short flag poles on rooftops ---------- */
@@ -1868,15 +1963,15 @@ const bannerSets=[];
   const poleM=new THREE.MeshStandardMaterial({color:0x6b5a3e, roughness:0.9});
   const flagCols=[0x2b5ea7,0xf2ede0,0xc23b2a,0x3d8b4f,0xe8c832];
   const bannerMats=flagCols.map(c=>new THREE.MeshStandardMaterial({color:c, map:TEX.flag, roughness:0.9, side:THREE.DoubleSide}));
-  const poleData=[], bannerData=[];
-  for(const p of PROPS.flagPole){ poleData.push([p.x,p.y,p.z,p.h]); for(let k=0;k<5;k++) bannerData.push({x:p.x+0.19, y:p.y+p.h-0.3-k*0.52, z:p.z, rot:hash(p.x+k)*0.8, ph:p.x+k, col:k}); }
+  const poleData=[...PROPS.flagPole], bannerData=[];
+  for(const p of PROPS.flagPole){ for(let k=0;k<5;k++) bannerData.push({house:p.house, roofY:p.y, x:p.x+0.19, y:p.y+p.h-0.3-k*0.52, z:p.z, rot:hash(p.x+k)*0.8, ph:p.x+k, col:k}); }
   for(let i=0;i<6;i++){ // tall darchor poles with vertical five-colour banners along the inside of the wall
     const a=i/6*Math.PI*2+0.5; const w=closestOnWall(Math.cos(a)*60, Math.sin(a)*60); const d=Math.hypot(w[0],w[1]); const x=w[0]*(d-1.3)/d, z=w[1]*(d-1.3)/d;
-    poleData.push([x,0,z,11]); addCollider(x,z,0.3);
+    poleData.push({x,y:0,z,h:11}); addCollider(x,z,0.3);
     for(let k=0;k<6;k++) bannerData.push({x:x+0.24, y:10.4-k*0.62, z, rot:a, ph:i*2+k, col:k%5});
   }
   const pg=new THREE.CylinderGeometry(0.05,0.08,1,6); pg.translate(0,0.5,0);
-  instanced(pg, poleM, poleData, (d,p)=>{ d.position.set(p[0],p[1],p[2]); d.scale.set(1,p[3],1); }, {cast:CAST_SMALL});
+  instanced(pg, poleM, poleData, (d,p)=>{ d.position.set(p.x,p.y,p.z); d.scale.set(1,p.h,1); }, {cast:CAST_SMALL});
   const byCol=[[],[],[],[],[]]; bannerData.forEach(bd=>byCol[bd.col].push(bd));
   byCol.forEach((list,ci)=>{ if(!list.length) return; const im=new THREE.InstancedMesh(new THREE.PlaneGeometry(0.36,0.56), bannerMats[ci], list.length); im.userData.list=list; im.frustumCulled=false; scene.add(im); bannerSets.push(im); });
 })();
@@ -1898,10 +1993,31 @@ const LAMPS=[];
 })();
 /* ---------- overhead wires: along the kora facades, utility poles on the outer streets ---------- */
 (function buildWires(){
-  const pos=[];
-  function wire(x1,y1,z1,x2,y2,z2,sag){ let px=x1,py=y1,pz=z1; const N=10; for(let k=1;k<=N;k++){ const f=k/N; const x=x1+(x2-x1)*f, z=z1+(z2-z1)*f, y=y1+(y2-y1)*f-Math.sin(f*Math.PI)*sag; pos.push(px,py,pz,x,y,z); px=x; py=y; pz=z; } }
-  const A=PROPS.wireAnchors.slice().sort((a,b)=>a[3]-b[3]);
-  for(let i=0;i<A.length;i++){ const a=A[i], b=A[(i+1)%A.length]; const d=Math.hypot(a[0]-b[0],a[2]-b[2]); if(d>2 && d<28){ wire(a[0],a[1],a[2],b[0],b[1],b[2],0.4+d*0.03); wire(a[0],a[1]-0.25,a[2],b[0],b[1]-0.3,b[2],0.5+d*0.035); } }
+  const pos=[], attached=[];
+  function wire(x1,y1,z1,x2,y2,z2,sag,anchors){
+    const start=pos.length;
+    let px=x1,py=y1,pz=z1;
+    for(let k=1;k<=10;k++){
+      const f=k/10, x=x1+(x2-x1)*f, z=z1+(z2-z1)*f, y=y1+(y2-y1)*f-Math.sin(f*Math.PI)*sag;
+      pos.push(px,py,pz,x,y,z);
+      px=x; py=y; pz=z;
+    }
+    if(!anchors) return;
+    const record={anchors, start, original:new Float32Array(pos.slice(start)), visible:true};
+    attached.push(record);
+    for(const house of new Set(anchors.map(a=>a.house))){
+      const wires=house.wires||(house.wires=[]);
+      wires.push(record);
+    }
+  }
+  const A=PROPS.wireAnchors.slice().sort((a,b)=>a.angle-b.angle);
+  for(let i=0;i<A.length;i++){
+    const a=A[i], b=A[(i+1)%A.length], d=Math.hypot(a.x-b.x,a.z-b.z);
+    if(d<=2 || d>=28) continue;
+    wire(a.x,a.y,a.z,b.x,b.y,b.z,0.4+d*0.03,[a,b]);
+    wire(a.x,a.y-0.25,a.z,b.x,b.y-0.3,b.z,0.5+d*0.035,
+      [{house:a.house,y:a.y-0.25},{house:b.house,y:b.y-0.3}]);
+  }
   // utility poles every ~30 m on outer streets, 3 sagging wires between them + service drops to houses
   const poles=[]; const R=rng(404);
   for(const rd of OSM.r){ const [pts,hw]=rd; if(!(hw==='primary'||hw==='residential'||hw==='secondary'||hw==='service'||hw==='tertiary')) continue;
@@ -1910,10 +2026,12 @@ const LAMPS=[];
       for(let s=(30-acc)%30; s<L; s+=30){ const x=a[0]+ux*s-uz*w, z=a[1]+uz*s+ux*w; if(Math.hypot(x,z)<70 || buildingAt(x,z) || Math.hypot(x-GATE_POS[0],z-GATE_POS[1])<5.5) { last=null; continue; }
         const p=[x,z]; poles.push(p); addCollider(x,z,0.22);
         if(last){ for(let k=0;k<3;k++) wire(last[0],7.2-k*0.35,last[1], x,7.2-k*0.35,z, 0.6+k*0.1); }
-        if(R()<0.6){ const tx=x+uz*6*(R()<0.5?1:-1), tz=z-ux*6; const bb=buildingAt(tx,tz)||buildingAt(x+uz*4,z-ux*4); if(bb){ wire(x,6.8,z, tx*0.6+x*0.4, Math.min(bb.b.h,6.2), tz*0.6+z*0.4, 0.3); } }
+        if(R()<0.6){ const tx=x+uz*6*(R()<0.5?1:-1), tz=z-ux*6; const bb=buildingAt(tx,tz)||buildingAt(x+uz*4,z-ux*4); if(bb){ const y=Math.min(bb.b.h,6.2); wire(x,6.8,z,tx*0.6+x*0.4,y,tz*0.6+z*0.4,0.3,[{house:bb.b,y}]); } }
         last=p; }
       acc=(acc+L)%30; } }
-  const wg=new THREE.BufferGeometry(); wg.setAttribute('position', new THREE.Float32BufferAttribute(pos,3));
+  const position=new THREE.Float32BufferAttribute(pos,3);
+  for(const record of attached) record.position=position;
+  const wg=new THREE.BufferGeometry(); wg.setAttribute('position',position);
   const wl=new THREE.LineSegments(wg, new THREE.LineBasicMaterial({color:0x1c1b1a, transparent:true, opacity:0.7})); wl.frustumCulled=false; scene.add(wl);
   const pg=mergeVC([[new THREE.CylinderGeometry(0.1,0.15,7.6,6).translate(0,3.8,0),[0.62,0.6,0.56]],[new THREE.BoxGeometry(1.2,0.08,0.08).translate(0,7.2,0),[0.3,0.3,0.3]],[new THREE.BoxGeometry(0.5,0.6,0.35).translate(0,5.6,0.2),[0.4,0.42,0.4]]]);
   instanced(pg, new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.9}), poles, (d,p,i)=>{ d.position.set(p[0],0,p[1]); d.rotation.y=hash(i)*3; }, {cast:CAST_SMALL});
@@ -2452,9 +2570,9 @@ function collides(nx, nz, ox, oz, R){
       if(Math.hypot(nx-(ax+vx*t), nz-(az+vz*t)) < 0.35+R) return true; }
   }
   for(const c of gridAt(nx,nz)){                                                         // buildings (real footprints) with body radius
-    if(nx<c.minx-R||nx>c.maxx+R||nz<c.minz-R||nz>c.maxz+R) continue;
+    if(c.b.dead || nx<c.minx-R||nx>c.maxx+R||nz<c.minz-R||nz>c.maxz+R) continue;
     if(pointInPoly(nx,nz,c.poly) || distToPoly(nx,nz,c.poly)<R) return true; }
-  for(const o of (pGrid.get(gk(Math.floor(nx/GRID),Math.floor(nz/GRID)))||EMPTY)){ const dx=nx-o.x, dz=nz-o.z; if(dx*dx+dz*dz<(o.r+R)*(o.r+R)) return true; }
+  for(const o of (pGrid.get(gk(Math.floor(nx/GRID),Math.floor(nz/GRID)))||EMPTY)){ if(o.house?.dead) continue; const dx=nx-o.x, dz=nz-o.z; if(dx*dx+dz*dz<(o.r+R)*(o.r+R)) return true; }
   for(const p of PEOPLE){ if(p.role==='rider') continue; const dx=nx-p.x, dz=nz-p.z, d=dx*dx+dz*dz; if(d<(0.33+R)*(0.33+R) && d<(ox-p.x)**2+(oz-p.z)**2) return true; }   // people: never trap, only block
   for(const v of VEH){ const fx=Math.sin(v.yaw), fz=Math.cos(v.yaw), rr=(v.bike?0.55:1.0)+R;
     for(const s of (v.bike?[0]:[-1.1,1.1])){ const cx=v.x+fx*s, cz=v.z+fz*s, d=(nx-cx)**2+(nz-cz)**2; if(d<rr*rr && d<(ox-cx)**2+(oz-cz)**2) return true; } }
@@ -2905,7 +3023,7 @@ function updateBooms(dt){ for(const B of BOOMS){ if(!B.on) continue; B.t+=dt; co
     const fr=s*(0.35+1.1*(1-Math.exp(-T*6))); B.f.position.set(B.x,B.y+T*s*0.25,B.z); B.f.scale.setScalar(fr*2.6); B.f.material.opacity=Math.max(0,1-T/0.9); B.f.material.color.setRGB(1.6,0.7+0.6*Math.exp(-T*3),0.25); B.f.visible=B.f.material.opacity>0.01;
     for(const m of B.sm){ const o=m.userData.o, k=Math.min(1,T/0.6); m.position.set(B.x+o[0]*k, B.y+o[1]+T*s*0.35*o[3], B.z+o[2]*k); m.scale.setScalar(s*(0.3+0.5*k+T*0.12)*o[3]*2.2); m.material.opacity=Math.min(0.55,T*3)*Math.max(0,1-T/7)*Math.min(1,camera.position.distanceTo(m.position)/(m.scale.x*1.6+0.01)); m.visible=T>0.08 && m.material.opacity>0.01; }
     if(T>7){ B.on=false; B.f.visible=false; for(const m of B.sm) m.visible=false; } } }
-function restoreCity(quiet){ const n=VAL.restore(); clearDebris(); clearChunks(); reviveAll(); clearScorch(); FIGHT.hp=100; FIGHT.ko=0; if(!quiet) showToast(n?'Rebuilt '+n.toLocaleString('en')+' buildings':'Nothing to rebuild'); return n; }
+function restoreCity(quiet){ const n=boudhaRestore()+VAL.restore(); clearDebris(); clearChunks(); reviveAll(); clearScorch(); FIGHT.hp=100; FIGHT.ko=0; if(!quiet) showToast(n?'Rebuilt '+n.toLocaleString('en')+' buildings':'Nothing to rebuild'); return n; }
 
 /* ---------------- ATOMIC BLAST: fireball, mushroom cloud, dust wall ---------------- */
 const BOMB={gz:new THREE.Vector3(), dist:190, dir:new THREE.Vector3(), built:false, list:[], li:0};   // close enough to watch the city go (was 1.9 km)
@@ -3083,6 +3201,7 @@ function sndUpdate(dt, nearFire, ufoD){
 
 /* ---------------- fire control ---------------- */
 function igniteBuilding(b){
+  b=b?.b||b;   // Boudha debris carries a reference to the source house.
   if(!b || FIRES.some(f=>f.b===b)) return false;
   if(FIRES.length>=MAXFIRE){ const i=FIRES.findIndex(f=>f.target===0); if(i>=0) FIRES.splice(i,1); else return false; }
   FIRES.push({b, x:b.c[0], y:b.wallTop, z:b.c[1], r:Math.max(1.6,Math.min(6.5,Math.sqrt(b.area)/2.6)), s:0, target:1, age:0, spread:6+Math.random()*5});
@@ -3099,7 +3218,7 @@ let rainOutTold=false;
 function updateFires(dt){
   let nearFire=0, closest=null, cd=1e9; const cam=camera.position;
   const douse = SIM.rainA>0.35 || SIM.snowFall>0.5;
-  for(let i=FIRES.length-1;i>=0;i--){ const F=FIRES[i]; F.age+=dt;
+  for(let i=FIRES.length-1;i>=0;i--){ const F=FIRES[i]; F.age+=dt; F.y=F.b.wallTop;
     if(douse) F.target=0;
     F.s += (F.target-F.s)*Math.min(1, dt*(F.target>F.s?0.18:0.07));
     if(F.target===0 && F.s<0.02){ FIRES.splice(i,1); continue; }
@@ -3153,7 +3272,7 @@ function startBomb(){
   SIM.bombT=0; camera.getWorldDirection(_v); _v.y=0; if(_v.lengthSq()<1e-4) _v.set(0,0,-1); _v.normalize();
   BOMB.dir.copy(_v); { const bx=camera.position.x+_v.x*BOMB.dist, bz=camera.position.z+_v.z*BOMB.dist; BOMB.gz.set(bx, GY(bx,bz), bz); } BOMB.arrived=false;
   mush.visible=true; fireball.visible=true; dustWall.visible=true; dustWall.position.copy(BOMB.gz);
-  BOMB.list=VAL.blastList(BOMB.gz.x, BOMB.gz.z, 470); BOMB.li=0; BOMB.killed=0; BOMB.inhaled=false;
+  BOMB.list=VAL.blastList(BOMB.gz.x, BOMB.gz.z, 470); BOMB.bl=BLD.map(b=>({b,d:Math.hypot(b.c[0]-BOMB.gz.x,b.c[1]-BOMB.gz.z)})).filter(e=>e.d<470).sort((a,b)=>a.d-b.d); BOMB.bi=0; BOMB.li=0; BOMB.killed=0; BOMB.inhaled=false;
   if(AUD.on && AUD.ctx){ const t0=AUD.ctx.currentTime, ta=t0+BOMB.dist/343; rumble(ta,1.6,1900,0.9,0.008); rumble(ta,8,85,1.0,0.06); rumble(ta+0.5,9,45,0.9,0.5);
     const c=AUD.ctx, o=c.createOscillator(), g=c.createGain(); o.frequency.setValueAtTime(48,ta); o.frequency.exponentialRampToValueAtTime(22,ta+5); g.gain.setValueAtTime(0.0001,ta); g.gain.exponentialRampToValueAtTime(0.6,ta+0.05); g.gain.exponentialRampToValueAtTime(0.0001,ta+6); o.connect(g); g.connect(AUD.master); o.start(ta); o.stop(ta+6.2);
     carAlarm(ta+1.5,10,700,950); carAlarm(ta+2.2,9,560,820); }
@@ -3173,6 +3292,7 @@ function updateBomb(dt){
   // ground shock / dust wall racing out at the speed of sound
   const r=343*T; dustWall.scale.set(Math.max(1,r), 30+r*0.022, Math.max(1,r)); wallMat.uniforms.uT.value=T;
   wallMat.uniforms.uOp.value = Math.min(1,T*2)*Math.max(0, 1-Math.max(0,r-BOMB.dist+120)/220)*0.7; dustWall.visible=wallMat.uniforms.uOp.value>0.01;
+  while(BOMB.bl && BOMB.bi<BOMB.bl.length && BOMB.bl[BOMB.bi].d<r){ const e=BOMB.bl[BOMB.bi++]; if(!e.b.dead && (e.d<260 || Math.random()<0.9*(470-e.d)/210)){ shatter(collapseBoudhaHouse(e.b),'blast',BOMB.gz.x,BOMB.gz.z,Math.max(16,80*(1-e.d/520))); } }
   if(!BOMB.inhaled && T>0.08){ BOMB.inhaled=true; for(const e of BOMB.list){ if(e.d>140) break; const ps=VAL.kill(e.it); e.done=true; if(ps){ BOMB.killed++; shatter(ps,'inhale',BOMB.gz.x,BOMB.gz.z,26); } } }   // the fireball swallows the nearest blocks first
   { const R2=r*r; for(const c of (typeof crowd==='function'?crowd():[])){ if(c.p.down) continue; const d2=(c.x-BOMB.gz.x)**2+(c.z-BOMB.gz.z)**2; if(d2<R2 && d2<520*520) knockDown(c.p, d2<380*380, BOMB.gz.x, BOMB.gz.z); } }
   { let n=0; while(BOMB.li<BOMB.list.length && BOMB.list[BOMB.li].d<r && n<(MOBILE?40:80)){ const e=BOMB.list[BOMB.li++]; if(e.done) continue; n++;     // the wave flattens what it reaches
@@ -4047,13 +4167,13 @@ function fireMissile(){ if(!DRV.driving || DRV.type!=='jet') return; if(WPN.ammo
   const fl=glowSprite(0xffb050,2.2); fl.material.opacity=0.95; mesh.add(fl); fl.position.set(0,0,1.7);
   WPN.miss.push({mesh, p:_wq.clone(), v:f.clone().multiplyScalar(P.v+40), f:f.clone(), t:0, tr:0});
   if(AUD.on&&AUD.ctx) noiseHit(AUD.ctx.currentTime,0.9,900,'lowpass',0.35); }
-function segHit(a,b){ // first building or ground hit between a and b (sampled every 4 m)
-  const L=a.distanceTo(b), n=Math.max(1,Math.ceil(L/4));
+function segHit(a,b,step=4,hitBoudha=false){ // first building or ground hit between a and b
+  const L=a.distanceTo(b), n=Math.max(1,Math.ceil(L/step));
   for(let i=1;i<=n;i++){ const t=i/n, x=a.x+(b.x-a.x)*t, y=a.y+(b.y-a.y)*t, z=a.z+(b.z-a.z)*t;
     if(y<=VAL.gy(x,z)+0.2) return {x,y,z,ground:true};
-    if(!VAL.inBoudha(x,z) && y<=VAL.roofY(x,z)+0.2) return {x,y,z,ground:false}; }
+    const house=hitBoudha && buildingAt(x,z)?.b;
+    if(y<=(house?house.wallTop:VAL.roofY(x,z))+0.2) return {x,y,z,ground:false}; }
   return null; }
-function segHitCoarse(a,b){ const L=a.distanceTo(b), n=Math.ceil(L/20); for(let i=1;i<=n;i++){ const t=i/n, x=a.x+(b.x-a.x)*t, y=a.y+(b.y-a.y)*t, z=a.z+(b.z-a.z)*t; if(y<=VAL.gy(x,z)+0.2 || (!VAL.inBoudha(x,z) && y<=VAL.roofY(x,z)+0.2)) return {x,y,z}; } return null; }
 function puffTrail(x,y,z,s){ if(WPN.trail.length>=TLN) WPN.trail.shift(); WPN.trail.push({x,y,z,s,t:0}); }
 function updateWeapons(dt, m, P){
   const f=jetFwd(m);
@@ -4071,8 +4191,8 @@ function updateWeapons(dt, m, P){
   tracers.count=n; tracers.instanceMatrix.needsUpdate=true;
   // missiles: boost to ~450 m/s, smoke trail, blast knocks down everything within ~26 m
   for(let i=WPN.miss.length-1;i>=0;i--){ const M=WPN.miss[i]; M.t+=dt; const sp=M.v.length(); M.v.setLength(Math.min(460,sp+260*dt)); q.copy(M.p).addScaledVector(M.v,dt);
-    const h=segHit(M.p,q);
-    if(h || M.t>9){ if(h){ boom(h.x,h.y+1,h.z,18); const dead=VAL.destroyNear(h.x,h.z,26,(d)=>d<17?1:0.65); for(let k=0;k<dead.length;k++){ shatter(dead[k],'blast',h.x,h.z,30); if(k<(MOBILE?4:8)) burstDebris(dead[k],3,2); } if(dead.length && Math.random()<0.5) igniteBuilding(dead[0]);
+    const h=segHit(M.p,q,4,true);
+    if(h || M.t>9){ if(h){ boom(h.x,h.y+1,h.z,18); const dead=(Math.abs(h.x)<=330&&Math.abs(h.z)<=330?boudhaKillNear(h.x,h.z,18):[]).concat(VAL.destroyNear(h.x,h.z,26,(d)=>d<17?1:0.65)); for(let k=0;k<dead.length;k++){ shatter(dead[k],'blast',h.x,h.z,30); if(k<(MOBILE?4:8)) burstDebris(dead[k],3,2); } if(dead.length && Math.random()<0.5) igniteBuilding(dead[0]);
         const cd=camera.position.distanceTo(_wq.set(h.x,h.y,h.z)); if(cd<400) DRV.shake=Math.max(DRV.shake,0.6*(1-cd/400)); }
       scene.remove(M.mesh); WPN.miss.splice(i,1); continue; }
     M.p.copy(q); M.mesh.position.copy(q); M.mesh.lookAt(_wq.copy(q).add(M.v)); M.mesh.rotateY(Math.PI);
@@ -4081,7 +4201,7 @@ function updateWeapons(dt, m, P){
   // reload one missile every 4 s
   if(WPN.ammo<4){ WPN.reload-=dt; if(WPN.reload<=0){ WPN.ammo++; const order=[1,2,0,3]; m.missiles[order[(4-WPN.ammo)%4]].visible=true; WPN.reload=WPN.ammo<4?4:0; } }
   // aim reticle: where the weapons line meets a roof or the ground (else 900 m ahead)
-  { const a=new THREE.Vector3(P.x,P.alt+1.6,P.z), b=a.clone().addScaledVector(f,2400); WPN.aimT=(WPN.aimT||0)-dt; if(WPN.aimT<=0){ WPN.aimT=0.1; const h=segHitCoarse(a,b); WPN.aimD=h?a.distanceTo(_wq.set(h.x,h.y,h.z)):900; } _wq.copy(a).addScaledVector(f,WPN.aimD||900).project(camera); aimEl.classList.toggle('lock',(WPN.aimD||900)<2390); }
+  { const a=new THREE.Vector3(P.x,P.alt+1.6,P.z), b=a.clone().addScaledVector(f,2400); WPN.aimT=(WPN.aimT||0)-dt; if(WPN.aimT<=0){ WPN.aimT=0.1; const h=segHit(a,b,20,true); WPN.aimD=h?a.distanceTo(_wq.set(h.x,h.y,h.z)):900; } _wq.copy(a).addScaledVector(f,WPN.aimD||900).project(camera); aimEl.classList.toggle('lock',(WPN.aimD||900)<2390); }
   if(_wq.z<1){ aimEl.style.transform=`translate(${(_wq.x*0.5+0.5)*innerWidth}px,${(-_wq.y*0.5+0.5)*innerHeight}px)`; aimEl.style.opacity='1'; } else aimEl.style.opacity='0';
 }
 fxPuff=(x,y,z,s)=>puffTrail(x,y,z,s); fxPuffUpdate=(dt)=>updatePuffs(dt);
@@ -4329,8 +4449,8 @@ function fightUI(dt){ const now=performance.now()/1000;
 /* ---------- handgun ---------- */
 const _ro=new THREE.Vector3(), _rd=new THREE.Vector3();
 function wallAt(x,y,z){ if(y<=GY(x,z)+0.05) return true;
-  if(Math.abs(x)<=300 && Math.abs(z)<=300){ const c=buildingAt(x,z), b=c&&(c.b||c); return !!(b && y<=b.wallTop+0.6); }
-  return y<=VAL.roofY(x,z); }
+  const house=buildingAt(x,z)?.b;
+  return (house && y<=house.wallTop+0.6) || y<=VAL.roofY(x,z); }
 function fireGun(){ if(!GUN.on || mode!=='walk' || GUN.cool>0) return; if(GUN.w==='rpg') return fireRocket(); if(GUN.w==='nade') return throwGrenade(); GUN.cool=0.22; TP.recoil=1; TP.flash=0.06; TP.yaw=player.yaw;
   camera.getWorldPosition(_ro); camera.getWorldDirection(_rd);
   // first person: the shot goes from the eye; third person: from the camera through the crosshair (as in most games)
@@ -4411,23 +4531,99 @@ function throwGrenade(){ if(SHOTS.filter(s=>s.k==='nade').length>=5) return; GUN
   if(AUD.on&&AUD.ctx) noiseHit(AUD.ctx.currentTime,0.15,900,'bandpass',0.08); }
 function personNear(x,y,z,r){ for(const c of crowd()){ if(c.p.down) continue; if((c.x-x)**2+(c.z-z)**2<r*r && y>c.y-0.2 && y<c.y+c.h+0.2) return true; } return false; }
 function vehNear(x,z,r){ for(const v of VEH) if((v.x-x)**2+(v.z-z)**2<r*r) return true; for(const v of VAL.vveh) if(v.ri>=0 && (v.x-x)**2+(v.z-z)**2<r*r) return true; return false; }
+/* ---------- Boudha's own houses: same rules as the valley (damage adds up; pieces, top floors, then collapse) ---------- */
+const BHP=new Map();
+function bPs(b,top){ return {pts:b.pts, c:b.c, base:0, oldTop:top, wallTop:b.wallTop, area:b.area||60, col:bCol(b), b}; }   // a stand-in for the block thrower (b.col is the house's collider)
+function bCol(b){ return b.brick?[0.42,0.14,0.08]:(()=>{ const c=new THREE.Color(b.tint||'#e8e0d0'); return [c.r,c.g,c.b]; })(); }
+function bSetTop(b, top, dead){
+  b.wallTop0 ??= b.wallTop;
+  b.wallTop=top;
+  b.dead=dead;
+  setHouseSurfaces(b,top,dead);
+  setHouseProps(b,top,dead);
+  for(const mark of SCORCH){ if(mark.userData.house===b && (dead || mark.position.y+mark.scale.y/2>top)) mark.visible=false; }
+}
+function boudhaRestore(){
+  BHP.clear();
+  let count=0;
+  for(const b of BLD){
+    if(b.wallTop0==null) continue;
+    b.dead=false;
+    b.wallTop=b.wallTop0;
+    b.wallTop0=null;
+    restoreHouseSurfaces(b);
+    restoreHouseProps(b);
+    count++;
+  }
+  return count;
+}
+function collapseBoudhaHouse(b){
+  const oldTop=b.wallTop;
+  bSetTop(b,0.8,true);
+  return bPs(b,oldTop);
+}
+function boudhaFootprintDistance(b,x,z){ return pointInPoly(x,z,b.pts)?0:distToPoly(x,z,b.pts); }
+function boudhaDamage(x,y,z,R,power){
+  const out={killed:[], cut:[], hurt:[]};
+  for(const b of BLD){
+    if(b.dead || x<b.minx-R || x>b.maxx+R || z<b.minz-R || z>b.maxz+R) continue;
+    const d=boudhaFootprintDistance(b,x,z);
+    if(d>=R) continue;
+    const H=b.wallTop, need=Math.max(10,Math.min(40,8+b.area/25));
+    const hp=(BHP.get(b)||0)+power*(1-d/R);
+    BHP.set(b,hp);
+    if(hp>=need){ out.killed.push(collapseBoudhaHouse(b)); continue; }
+    if(d>=R*0.45) continue;
+    if(y>H*0.45 && H>5){
+      const floorsAboveGround=Math.max(0,Math.floor((y-1.2-b.groundH)/b.floorH));
+      const keep=b.groundH+floorsAboveGround*b.floorH;
+      if(keep<H-0.5){
+        bSetTop(b,keep,false);
+        out.cut.push({ps:bPs(b,H), from:keep, to:H});
+        continue;
+      }
+    }
+    out.hurt.push({ps:bPs(b,H)});
+  }
+  return out;
+}
+function boudhaKillNear(x,z,R){
+  const out=[];
+  for(const b of BLD){
+    if(b.dead || x<b.minx-R || x>b.maxx+R || z<b.minz-R || z>b.maxz+R) continue;
+    if(boudhaFootprintDistance(b,x,z)<=R) out.push(collapseBoudhaHouse(b));
+  }
+  return out;
+}
 /* scorch marks: a burnt, broken patch where a blast hit a wall or the ground */
 const scorchTex=canvasTex(128,128,(g,w,h)=>{ const n=makeNoise(11), im=g.createImageData(w,h), d=im.data;
   for(let y=0;y<h;y++) for(let x=0;x<w;x++){ const dx=(x-64)/64, dy=(y-64)/64, r=Math.hypot(dx,dy), nn=fbm(n,x*0.08,y*0.08,4,1e6,1e6), rr=r*(0.75+0.5*nn);
     const hole=rr<0.42, a=hole?0.97:Math.max(0,1-(rr-0.42)/0.55)*0.85, v=hole?8+18*nn:28+40*nn+50*Math.max(0,rr-0.6), o=(y*w+x)*4; d[o]=v*1.05; d[o+1]=v*0.95; d[o+2]=v*0.85; d[o+3]=a*255; } g.putImageData(im,0,0); });
 const SCORCH=[]; const scorchGeo=new THREE.PlaneGeometry(1,1);
-function scorch(x,y,z,nx,ny,nz,s){ let m=SCORCH.length<40?null:SCORCH.shift(); if(!m){ m=new THREE.Mesh(scorchGeo, new THREE.MeshStandardMaterial({map:scorchTex, transparent:true, depthWrite:false, roughness:1, polygonOffset:true, polygonOffsetFactor:-4, polygonOffsetUnits:-4})); m.receiveShadow=true; scene.add(m); }
-  SCORCH.push(m); m.visible=true; m.position.set(x+nx*0.06,y+ny*0.06,z+nz*0.06); m.lookAt(x+nx,y+ny,z+nz); m.rotateZ(Math.random()*6.28); m.scale.setScalar(s); }
+function scorch(x,y,z,nx,ny,nz,s,house){ let m=SCORCH.length<40?null:SCORCH.shift(); if(!m){ m=new THREE.Mesh(scorchGeo, new THREE.MeshStandardMaterial({map:scorchTex, transparent:true, depthWrite:false, roughness:1, polygonOffset:true, polygonOffsetFactor:-4, polygonOffsetUnits:-4})); m.receiveShadow=true; scene.add(m); }
+  SCORCH.push(m); m.visible=true; m.userData.house=house; m.position.set(x+nx*0.06,y+ny*0.06,z+nz*0.06); m.lookAt(x+nx,y+ny,z+nz); m.rotateZ(Math.random()*6.28); m.scale.setScalar(s); }
 function clearScorch(){ for(const m of SCORCH) m.visible=false; }
 function explodeAt(x,y,z,k,dir){ const big=k==='rpg', R=big?13:8;
   boom(x,y+1,z,big?16:11); scareBirds(x,z,120); SIM.panicHold=Math.max(SIM.panicHold,6);
   const g0=GY(x,z), onGround=y<g0+0.6;
-  if(!(Math.abs(x)<=300&&Math.abs(z)<=300)){ const D=VAL.damageAt(x,y,z,big?7:4.5,big?7:3.5);
+  const house=buildingAt(x,z)?.b;
+  const dirLength=dir?(Math.hypot(dir.x,dir.z)||1):1;
+  const dx=dir?dir.x/dirLength:0, dz=dir?dir.z/dirLength:0;
+  { const range=big?7:4.5, power=big?7:3.5;
+    const D=VAL.damageAt(x,y,z,range,power), local=boudhaDamage(x,y,z,range,power);
+    D.killed.push(...local.killed); D.cut.push(...local.cut); D.hurt.push(...local.hurt);
     D.killed.forEach((ps,i)=>{ shatter(ps,'blast',x,z,big?24:14); if(i<4) burstDebris(ps,3,1.8); });                        // brought down: the whole building in blocks
     for(const c of D.cut){ shatter(Object.assign({},c.ps,{base:c.from, oldTop:c.to, area:c.ps.area}),'blast',x,z,big?20:12); burstDebris(c.ps,3,1.6); }   // top floors blown off
-    for(const h of D.hurt.slice(0,3)){ const s=big?2.4:1.6; shatter({pts:[[x-s,z-s],[x+s,z-s],[x+s,z+s],[x-s,z+s]], c:[x,z], base:Math.max(h.ps.base||g0,y-s), oldTop:y+s, area:s*s*4, col:h.ps.col||[0.6,0.56,0.5]},'blast',x-(dir?dir.x:0)*3,z-(dir?dir.z:0)*3,big?14:9); }   // a piece of wall
+    for(const h of D.hurt.slice(0,3)){
+      const s=big?2.4:1.6;
+      const chip={pts:[[x-s,z-s],[x+s,z-s],[x+s,z+s],[x-s,z+s]], c:[x,z], base:Math.max(h.ps.base||g0,y-s), oldTop:y+s, area:s*s*4, col:h.ps.col};
+      // Throw the chipped facade out into the street where the hit can be seen.
+      shatter(chip,'blast',x+dx*4,z+dz*4,big?14:9);
+    }
     if((D.killed.length||D.cut.length) && Math.random()<0.35) igniteBuilding((D.killed[0]||D.cut[0].ps)); }
-  if(onGround || !dir) scorch(x,g0+0.02,z,0,1,0,big?5:3.2); else { const L=Math.hypot(dir.x,dir.z)||1; scorch(x-dir.x/L*0.25,y,z-dir.z/L*0.25,-dir.x/L,0,-dir.z/L,big?4.2:2.6); }
+  if(onGround || !dir) scorch(x,g0+0.02,z,0,1,0,big?5:3.2);
+  else if(!house || (!house.dead && y<house.wallTop)){ const size=big?4.2:2.6;
+    scorch(x-dx*0.25,y,z-dz*0.25,-dx,0,-dz,house?Math.min(size,(house.wallTop-y)*2):size,house); }
   for(const c of crowd()){ const d=Math.hypot(c.x-x,c.z-z); if(d>R*1.5) continue;                          // people: knocked flying
     const p=c.p, a=Math.atan2(c.x-x,c.z-z), f=Math.max(0,1-d/(R*1.5)); knockDown(p, d<R*0.7, x, z); p.fight=null;
     p.flyP={vx:Math.sin(a)*(3+f*13), vz:Math.cos(a)*(3+f*13), vy:3+f*9}; p.liftY=Math.max(p.liftY||0,0.05); }
@@ -5888,7 +6084,9 @@ function animate(){
     // rooftop & darchor banners flutter (instanced)
     for(const im of bannerSets){
       const list=im.userData.list;
-      for(let i=0;i<list.length;i++){ const bd=list[i]; dummy.position.set(bd.x, bd.y, bd.z);
+      for(let i=0;i<list.length;i++){ const bd=list[i];
+        if(bd.house && (bd.house.dead || bd.roofY>=bd.house.wallTop)){ im.setMatrixAt(i,hiddenHouseProp); continue; }
+        dummy.position.set(bd.x, bd.y, bd.z);
         dummy.rotation.set(reduced?0:Math.sin(t*2.6+bd.ph)*0.28, bd.rot, reduced?0:Math.cos(t*2.1+bd.ph)*0.16); dummy.scale.set(1,1,1); dummy.updateMatrix(); im.setMatrixAt(i, dummy.matrix); }
       im.instanceMatrix.needsUpdate=true;
     }
